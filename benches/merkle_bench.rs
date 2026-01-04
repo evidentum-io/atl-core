@@ -10,13 +10,13 @@
 
 #![allow(missing_docs)]
 
-use atl_core::core::checkpoint::{compute_key_id, Checkpoint, CheckpointVerifier};
+use atl_core::core::checkpoint::{Checkpoint, CheckpointVerifier, compute_key_id};
 use atl_core::core::jcs::{canonicalize, canonicalize_and_hash};
 use atl_core::core::merkle::{
-    compute_leaf_hash, compute_root, generate_inclusion_proof, verify_inclusion, Hash,
+    Hash, compute_leaf_hash, compute_root, generate_inclusion_proof, verify_inclusion,
 };
-use atl_core::core::receipt::{format_hash, format_signature, Receipt};
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use atl_core::core::receipt::{Receipt, format_hash, format_signature};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use ed25519_dalek::{Signer, SigningKey};
 use serde_json::json;
 

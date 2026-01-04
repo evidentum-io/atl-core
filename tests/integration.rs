@@ -2,13 +2,13 @@
 //!
 //! These tests verify end-to-end workflows using only the public API.
 
-use atl_core::core::checkpoint::{compute_key_id, Checkpoint, CheckpointJson, CheckpointVerifier};
+use atl_core::AtlError;
+use atl_core::core::checkpoint::{Checkpoint, CheckpointJson, CheckpointVerifier, compute_key_id};
 use atl_core::core::jcs::{canonicalize, canonicalize_and_hash};
 use atl_core::core::merkle::{
-    compute_leaf_hash, compute_root, generate_inclusion_proof, verify_inclusion, Hash,
+    Hash, compute_leaf_hash, compute_root, generate_inclusion_proof, verify_inclusion,
 };
-use atl_core::core::receipt::{format_hash, format_signature, Receipt, RECEIPT_SPEC_VERSION};
-use atl_core::AtlError;
+use atl_core::core::receipt::{RECEIPT_SPEC_VERSION, Receipt, format_hash, format_signature};
 use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use serde_json::json;
 use uuid::Uuid;

@@ -8,16 +8,16 @@ pub mod verify;
 
 // Re-export commonly used types
 pub use checkpoint::{
-    compute_key_id, compute_origin_id, parse_hash, parse_signature, Checkpoint, CheckpointJson,
-    CheckpointVerifier,
+    Checkpoint, CheckpointJson, CheckpointVerifier, compute_key_id, compute_origin_id, parse_hash,
+    parse_signature,
 };
 pub use jcs::{canonicalize, canonicalize_and_hash};
-pub use merkle::{compute_leaf_hash, verify_inclusion, Hash, InclusionProof};
+pub use merkle::{Hash, InclusionProof, compute_leaf_hash, verify_inclusion};
 pub use receipt::{
-    format_hash, format_signature, parse_base64_signature, Receipt, ReceiptAnchor,
-    ReceiptConsistencyProof, ReceiptEntry, ReceiptProof, RECEIPT_SPEC_VERSION,
+    RECEIPT_SPEC_VERSION, Receipt, ReceiptAnchor, ReceiptConsistencyProof, ReceiptEntry,
+    ReceiptProof, format_hash, format_signature, parse_base64_signature,
 };
 pub use verify::{
-    verify_receipt, verify_receipt_json, AnchorVerificationResult, ReceiptVerifier,
-    VerificationError, VerificationResult, VerifyOptions,
+    AnchorVerificationResult, ReceiptVerifier, VerificationError, VerificationResult,
+    VerifyOptions, verify_receipt, verify_receipt_json,
 };

@@ -263,8 +263,10 @@ mod tests {
         assert!(AtlError::SignatureInvalid.is_verification_failure());
         assert!(AtlError::InclusionProofInvalid.is_verification_failure());
         assert!(AtlError::ConsistencyProofInvalid.is_verification_failure());
-        assert!(AtlError::OriginMismatch { expected: "a".into(), actual: "b".into() }
-            .is_verification_failure());
+        assert!(
+            AtlError::OriginMismatch { expected: "a".into(), actual: "b".into() }
+                .is_verification_failure()
+        );
 
         assert!(!AtlError::InvalidHash("x".into()).is_verification_failure());
         assert!(
@@ -312,8 +314,8 @@ mod tests {
 
     #[test]
     fn test_base64_error_conversion() {
-        use base64::engine::general_purpose::STANDARD;
         use base64::Engine;
+        use base64::engine::general_purpose::STANDARD;
 
         let result = STANDARD.decode("invalid base64!!!");
         assert!(result.is_err());

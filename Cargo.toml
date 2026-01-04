@@ -1,8 +1,8 @@
 [package]
 name = "atl-core"
 version = "0.1.0"
-edition = "2021"
-rust-version = "1.75.0"
+edition = "2024"
+rust-version = "1.85.0"
 license = "Apache-2.0"
 description = "Pure cryptographic library for ATL Protocol v1 (Anchored Transparency Log)"
 repository = "https://github.com/evidentum/atl-core"

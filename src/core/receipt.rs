@@ -378,8 +378,8 @@ fn parse_hash_string(s: &str) -> AtlResult<Hash> {
 /// assert_eq!(parsed, sig);
 /// ```
 pub fn parse_base64_signature(s: &str) -> AtlResult<[u8; 64]> {
-    use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
 
     let b64_str = s
         .strip_prefix("base64:")
@@ -426,8 +426,8 @@ pub fn format_hash(hash: &Hash) -> String {
 /// ```
 #[must_use]
 pub fn format_signature(sig: &[u8; 64]) -> String {
-    use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
     format!("base64:{}", STANDARD.encode(sig))
 }
 
@@ -575,8 +575,8 @@ mod tests {
 
     #[test]
     fn test_parse_signature() {
-        use base64::engine::general_purpose::STANDARD;
         use base64::Engine;
+        use base64::engine::general_purpose::STANDARD;
 
         let sig = [0xcd; 64];
         let formatted = format!("base64:{}", STANDARD.encode(sig));

@@ -4,7 +4,7 @@
 
 use atl_core::core::jcs::{canonicalize, canonicalize_and_hash};
 use atl_core::core::merkle::{
-    compute_leaf_hash, compute_root, generate_inclusion_proof, verify_inclusion, Hash,
+    Hash, compute_leaf_hash, compute_root, generate_inclusion_proof, verify_inclusion,
 };
 use proptest::prelude::*;
 

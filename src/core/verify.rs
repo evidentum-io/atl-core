@@ -8,9 +8,9 @@
 //!
 //! Implementation: VERIFY-1
 
-use crate::core::checkpoint::{parse_hash, CheckpointVerifier};
+use crate::core::checkpoint::{CheckpointVerifier, parse_hash};
 use crate::core::jcs::canonicalize_and_hash;
-use crate::core::merkle::{compute_leaf_hash, verify_inclusion, InclusionProof};
+use crate::core::merkle::{InclusionProof, compute_leaf_hash, verify_inclusion};
 use crate::core::receipt::{Receipt, ReceiptAnchor};
 use crate::error::AtlResult;
 
@@ -358,7 +358,7 @@ fn verify_checkpoint_signature(
     checkpoint: &crate::core::checkpoint::CheckpointJson,
     verifier: &CheckpointVerifier,
 ) -> Result<bool, VerificationError> {
-    use crate::core::checkpoint::{parse_signature, Checkpoint};
+    use crate::core::checkpoint::{Checkpoint, parse_signature};
 
     // Build Checkpoint from CheckpointJson
     let origin = parse_hash(&checkpoint.origin).map_err(|_| VerificationError::SignatureFailed)?;
@@ -596,7 +596,7 @@ mod tests {
     use crate::core::checkpoint::Checkpoint;
     use crate::core::checkpoint::CheckpointJson;
     use crate::core::receipt::{
-        format_hash, format_signature, Receipt, ReceiptEntry, ReceiptProof,
+        Receipt, ReceiptEntry, ReceiptProof, format_hash, format_signature,
     };
     use ed25519_dalek::{Signer, SigningKey};
     use serde_json::json;

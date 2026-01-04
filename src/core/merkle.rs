@@ -206,11 +206,7 @@ pub const fn largest_power_of_2_less_than(n: u64) -> u64 {
     let power = 1u64 << (bits - 1);
 
     // If n is exactly a power of 2, we need the next smaller power
-    if power == n {
-        power >> 1
-    } else {
-        power
-    }
+    if power == n { power >> 1 } else { power }
 }
 
 /// Compute root hash from a slice of leaf hashes
@@ -818,11 +814,7 @@ mod tests {
     fn test_inclusion_proof_single_leaf() {
         let leaves = [ZERO_HASH];
         let get_node = |level: u32, index: u64| -> Option<Hash> {
-            if level == 0 && index == 0 {
-                Some(leaves[0])
-            } else {
-                None
-            }
+            if level == 0 && index == 0 { Some(leaves[0]) } else { None }
         };
 
         let proof = generate_inclusion_proof(0, 1, get_node).unwrap();

@@ -279,6 +279,7 @@ impl Checkpoint {
     /// Set the signature and `key_id` after parsing from bytes
     ///
     /// This is used when deserializing a checkpoint from network format.
+    #[allow(clippy::missing_const_for_fn)]
     pub fn set_signature(&mut self, signature: [u8; 64], key_id: [u8; 32]) {
         self.signature = signature;
         self.key_id = key_id;
@@ -539,8 +540,8 @@ pub fn parse_hash(s: &str) -> AtlResult<[u8; 32]> {
 /// ```
 #[must_use]
 pub fn format_signature(sig: &[u8; 64]) -> String {
-    use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
     format!("base64:{}", STANDARD.encode(sig))
 }
 
@@ -553,8 +554,8 @@ pub fn format_signature(sig: &[u8; 64]) -> String {
 /// - Invalid base64 encoding
 /// - Wrong length (not 64 bytes)
 pub fn parse_signature(s: &str) -> AtlResult<[u8; 64]> {
-    use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
 
     let b64_str = s
         .strip_prefix("base64:")

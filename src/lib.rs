@@ -88,26 +88,26 @@ pub mod prelude;
 
 // Merkle tree types and functions
 pub use core::merkle::{
-    compute_leaf_hash, hash_children, verify_consistency, verify_inclusion, ConsistencyProof, Hash,
-    InclusionProof, TreeHead, LEAF_PREFIX, NODE_PREFIX,
+    ConsistencyProof, Hash, InclusionProof, LEAF_PREFIX, NODE_PREFIX, TreeHead, compute_leaf_hash,
+    hash_children, verify_consistency, verify_inclusion,
 };
 
 // Checkpoint types and functions
 pub use core::checkpoint::{
-    compute_key_id, compute_origin_id, Checkpoint, CheckpointJson, CheckpointVerifier,
-    CHECKPOINT_BLOB_SIZE, CHECKPOINT_MAGIC,
+    CHECKPOINT_BLOB_SIZE, CHECKPOINT_MAGIC, Checkpoint, CheckpointJson, CheckpointVerifier,
+    compute_key_id, compute_origin_id,
 };
 
 // Receipt types
 pub use core::receipt::{
-    Receipt, ReceiptAnchor, ReceiptConsistencyProof, ReceiptEntry, ReceiptProof,
-    RECEIPT_SPEC_VERSION,
+    RECEIPT_SPEC_VERSION, Receipt, ReceiptAnchor, ReceiptConsistencyProof, ReceiptEntry,
+    ReceiptProof,
 };
 
 // Verification types and functions
 pub use core::verify::{
-    verify_receipt, verify_receipt_json, AnchorVerificationResult, ReceiptVerifier,
-    VerificationError, VerificationResult, VerifyOptions,
+    AnchorVerificationResult, ReceiptVerifier, VerificationError, VerificationResult,
+    VerifyOptions, verify_receipt, verify_receipt_json,
 };
 
 // JCS canonicalization
