@@ -1,0 +1,91 @@
+[
+  {
+    "name": "simple_object",
+    "input": {"b": 2, "a": 1},
+    "expected": "{\"a\":1,\"b\":2}"
+  },
+  {
+    "name": "nested_object",
+    "input": {"outer": {"b": 2, "a": 1}},
+    "expected": "{\"outer\":{\"a\":1,\"b\":2}}"
+  },
+  {
+    "name": "unicode_keys",
+    "input": {"é": 1, "e": 2},
+    "expected": "{\"e\":2,\"é\":1}"
+  },
+  {
+    "name": "number_formatting",
+    "input": {"n": 1.0},
+    "expected": "{\"n\":1}"
+  },
+  {
+    "name": "empty_object",
+    "input": {},
+    "expected": "{}"
+  },
+  {
+    "name": "empty_array",
+    "input": [],
+    "expected": "[]"
+  },
+  {
+    "name": "array_with_objects",
+    "input": [{"b": 2, "a": 1}, {"d": 4, "c": 3}],
+    "expected": "[{\"a\":1,\"b\":2},{\"c\":3,\"d\":4}]"
+  },
+  {
+    "name": "null_value",
+    "input": null,
+    "expected": "null"
+  },
+  {
+    "name": "boolean_values",
+    "input": {"false": false, "true": true},
+    "expected": "{\"false\":false,\"true\":true}"
+  },
+  {
+    "name": "string_escaping",
+    "input": {"quote": "a\"b", "backslash": "a\\b", "newline": "a\nb"},
+    "expected": "{\"backslash\":\"a\\\\b\",\"newline\":\"a\\nb\",\"quote\":\"a\\\"b\"}"
+  },
+  {
+    "name": "unicode_not_escaped",
+    "input": {"text": "café 日本語 😀"},
+    "expected": "{\"text\":\"café 日本語 😀\"}"
+  },
+  {
+    "name": "nested_arrays",
+    "input": [[1, 2], [3, 4]],
+    "expected": "[[1,2],[3,4]]"
+  },
+  {
+    "name": "complex_structure",
+    "input": {
+      "z": [1, 2, 3],
+      "a": {
+        "nested": true,
+        "array": [{"b": 2}, {"a": 1}]
+      },
+      "m": null
+    },
+    "expected": "{\"a\":{\"array\":[{\"b\":2},{\"a\":1}],\"nested\":true},\"m\":null,\"z\":[1,2,3]}"
+  },
+  {
+    "name": "numbers_no_trailing_zeros",
+    "input": {"float": 1.5, "zero": 0.0, "negative": -42.0},
+    "expected": "{\"float\":1.5,\"negative\":-42,\"zero\":0}"
+  },
+  {
+    "name": "empty_string_key",
+    "input": {"": "empty key", "a": "normal key"},
+    "expected": "{\"\":\"empty key\",\"a\":\"normal key\"}"
+  },
+  {
+    "name": "rfc8785_example",
+    "input": {
+      "numbers": [333333333.3333333, 1.0e30, 4.5, 6, 0.002, 0.000002]
+    },
+    "expected": "{\"numbers\":[333333333.3333333,1e30,4.5,6,0.002,0.000002]}"
+  }
+]

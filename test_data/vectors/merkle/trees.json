@@ -1,0 +1,159 @@
+{
+  "description": "RFC 6962 Merkle tree test vectors for ATL Protocol",
+  "trees": [
+    {
+      "name": "single_leaf",
+      "description": "Tree with one leaf - root equals leaf hash",
+      "leaves": [
+        "0000000000000000000000000000000000000000000000000000000000000001"
+      ],
+      "root": "0000000000000000000000000000000000000000000000000000000000000001",
+      "proofs": [
+        {
+          "leaf_index": 0,
+          "tree_size": 1,
+          "path": []
+        }
+      ]
+    },
+    {
+      "name": "two_leaves",
+      "description": "Tree with two leaves - simplest non-trivial case",
+      "leaves": [
+        "0000000000000000000000000000000000000000000000000000000000000001",
+        "0000000000000000000000000000000000000000000000000000000000000002"
+      ],
+      "root": "computed",
+      "proofs": [
+        {
+          "leaf_index": 0,
+          "tree_size": 2,
+          "path": [
+            "0000000000000000000000000000000000000000000000000000000000000002"
+          ]
+        },
+        {
+          "leaf_index": 1,
+          "tree_size": 2,
+          "path": [
+            "0000000000000000000000000000000000000000000000000000000000000001"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "three_leaves",
+      "description": "Tree with three leaves - tests unbalanced tree",
+      "leaves": [
+        "0000000000000000000000000000000000000000000000000000000000000001",
+        "0000000000000000000000000000000000000000000000000000000000000002",
+        "0000000000000000000000000000000000000000000000000000000000000003"
+      ],
+      "root": "computed",
+      "proofs": [
+        {
+          "leaf_index": 0,
+          "tree_size": 3,
+          "path_description": "Proof for leaf 0 in tree of size 3"
+        },
+        {
+          "leaf_index": 1,
+          "tree_size": 3,
+          "path_description": "Proof for leaf 1 in tree of size 3"
+        },
+        {
+          "leaf_index": 2,
+          "tree_size": 3,
+          "path_description": "Proof for leaf 2 in tree of size 3"
+        }
+      ]
+    },
+    {
+      "name": "four_leaves",
+      "description": "Tree with four leaves - perfect binary tree",
+      "leaves": [
+        "0000000000000000000000000000000000000000000000000000000000000001",
+        "0000000000000000000000000000000000000000000000000000000000000002",
+        "0000000000000000000000000000000000000000000000000000000000000003",
+        "0000000000000000000000000000000000000000000000000000000000000004"
+      ],
+      "root": "computed",
+      "proofs": [
+        {
+          "leaf_index": 0,
+          "tree_size": 4,
+          "path_description": "Proof for leaf 0 in perfect binary tree"
+        },
+        {
+          "leaf_index": 2,
+          "tree_size": 4,
+          "path_description": "Proof for leaf 2 in perfect binary tree"
+        }
+      ]
+    },
+    {
+      "name": "seven_leaves",
+      "description": "Tree with seven leaves - non-power-of-2 size",
+      "leaves": [
+        "0000000000000000000000000000000000000000000000000000000000000001",
+        "0000000000000000000000000000000000000000000000000000000000000002",
+        "0000000000000000000000000000000000000000000000000000000000000003",
+        "0000000000000000000000000000000000000000000000000000000000000004",
+        "0000000000000000000000000000000000000000000000000000000000000005",
+        "0000000000000000000000000000000000000000000000000000000000000006",
+        "0000000000000000000000000000000000000000000000000000000000000007"
+      ],
+      "root": "computed",
+      "proofs": [
+        {
+          "leaf_index": 0,
+          "tree_size": 7,
+          "path_description": "Proof for first leaf"
+        },
+        {
+          "leaf_index": 3,
+          "tree_size": 7,
+          "path_description": "Proof for middle leaf"
+        },
+        {
+          "leaf_index": 6,
+          "tree_size": 7,
+          "path_description": "Proof for last leaf"
+        }
+      ]
+    },
+    {
+      "name": "eight_leaves",
+      "description": "Tree with eight leaves - power of 2",
+      "leaves": [
+        "0000000000000000000000000000000000000000000000000000000000000001",
+        "0000000000000000000000000000000000000000000000000000000000000002",
+        "0000000000000000000000000000000000000000000000000000000000000003",
+        "0000000000000000000000000000000000000000000000000000000000000004",
+        "0000000000000000000000000000000000000000000000000000000000000005",
+        "0000000000000000000000000000000000000000000000000000000000000006",
+        "0000000000000000000000000000000000000000000000000000000000000007",
+        "0000000000000000000000000000000000000000000000000000000000000008"
+      ],
+      "root": "computed",
+      "proofs": [
+        {
+          "leaf_index": 0,
+          "tree_size": 8,
+          "path_description": "Proof has exactly 3 hashes (log2(8))"
+        },
+        {
+          "leaf_index": 5,
+          "tree_size": 8,
+          "path_description": "Proof for middle-right leaf"
+        }
+      ]
+    }
+  ],
+  "notes": [
+    "Root hashes marked as 'computed' are calculated by the implementation",
+    "Actual proof paths are generated dynamically by generate_inclusion_proof()",
+    "These vectors test the correctness of RFC 6962 tree construction",
+    "Leaf values are hex-encoded 32-byte hashes (64 hex characters)"
+  ]
+}

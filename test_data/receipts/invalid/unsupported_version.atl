@@ -1,0 +1,22 @@
+{
+  "spec_version": "2.0.0",
+  "entry": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "metadata": {}
+  },
+  "proof": {
+    "tree_size": 1,
+    "root_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "inclusion_path": [],
+    "leaf_index": 0,
+    "checkpoint": {
+      "origin": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "tree_size": 1,
+      "root_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "timestamp": 0,
+      "signature": "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "key_id": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+  }
+}

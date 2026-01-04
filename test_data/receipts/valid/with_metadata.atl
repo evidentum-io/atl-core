@@ -1,0 +1,36 @@
+{
+  "spec_version": "1.0.0",
+  "entry": {
+    "id": "123e4567-e89b-12d3-a456-426614174000",
+    "payload_hash": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "metadata": {
+      "filename": "important_contract.pdf",
+      "size": 1024567,
+      "mime_type": "application/pdf",
+      "created": "2026-01-15T10:30:00Z",
+      "author": "John Doe",
+      "tags": ["contract", "important", "signed"],
+      "custom_fields": {
+        "department": "Legal",
+        "case_number": "2026-001"
+      }
+    }
+  },
+  "proof": {
+    "tree_size": 100,
+    "root_hash": "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+    "inclusion_path": [
+      "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    ],
+    "leaf_index": 42,
+    "checkpoint": {
+      "origin": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "tree_size": 100,
+      "root_hash": "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+      "timestamp": 1704153600000000000,
+      "signature": "base64:YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY3ODkwYWJjZGVmZ2hpams1Njc4OTBhYmNkZWZnaGlqaw==",
+      "key_id": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+    }
+  }
+}

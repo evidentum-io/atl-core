@@ -1,0 +1,39 @@
+{
+  "spec_version": "1.0.0",
+  "entry": {
+    "id": "987fcdeb-51a2-43d7-8901-234567890abc",
+    "payload_hash": "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+    "metadata": {
+      "filename": "document.pdf"
+    }
+  },
+  "proof": {
+    "tree_size": 50,
+    "root_hash": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+    "inclusion_path": [
+      "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+    ],
+    "leaf_index": 25,
+    "checkpoint": {
+      "origin": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+      "tree_size": 50,
+      "root_hash": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "timestamp": 1704240000000000000,
+      "signature": "base64:MTIzNDU2Nzg5MGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6YWJjZGVmZ2hpamsxMjM0NTY3ODkwYWJjZGVmZ2g=",
+      "key_id": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+    }
+  },
+  "anchors": [
+    {
+      "type": "rfc3161",
+      "timestamp": "2026-01-02T12:00:00Z",
+      "token_der": "base64:U29tZVJGQzMxNjFUb2tlbkRhdGE="
+    },
+    {
+      "type": "bitcoin_ots",
+      "timestamp": "2026-01-02T14:30:00Z",
+      "ots_proof": "base64:T3BlblRpbWVzdGFtcHNQcm9vZg==",
+      "bitcoin_block_height": 820000
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "spec_version": "1.0.0",
+  "entry": {
+    "id": "not a valid uuid",
+    "payload_hash": "sha256:aaaa",
+    "metadata": {}
+  },
+  "proof": {
+    "tree_size": 1,
+    "root_hash": "sha256:bbbb"
