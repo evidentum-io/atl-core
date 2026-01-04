@@ -71,7 +71,6 @@ pub enum AtlError {
     /// Missing node hash from storage callback
     ///
     /// NOTE: This error is used by proof generation functions that accept storage callbacks.
-    /// While ERROR-1 spec focuses on pure verification, proof generation requires storage access.
     #[error("missing node at level {level}, index {index}")]
     MissingNode {
         /// Tree level (0 = leaves)

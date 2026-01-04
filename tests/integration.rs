@@ -506,7 +506,7 @@ fn test_jcs_handles_unicode() {
     assert!(canonical.contains("😀"));
 }
 
-// ========== EXPORT-1 Verification Tests ==========
+// ========== Public API Export Tests ==========
 // Tests for verifying public API exports after signature changes
 
 #[test]
@@ -588,4 +588,70 @@ fn test_verify_consistency_returns_result() {
     let proof = ConsistencyProof { from_size: 10, to_size: 5, path: vec![] };
     let result = verify_consistency(&proof, &root, &root);
     assert!(result.is_err());
+}
+
+// ========== RFC 9162 Consistency Verification Integration Tests ==========
+
+#[test]
+fn test_end_to_end_consistency_verification() {
+    use atl_core::core::merkle::{
+        Hash, compute_leaf_hash, compute_root, generate_consistency_proof, verify_consistency,
+    };
+
+    // Full workflow: create tree, grow it, verify consistency
+
+    // Initial tree with 5 entries
+    let initial_entries = [
+        ([0xaa; 32], json!({"file": "doc1.pdf"})),
+        ([0xbb; 32], json!({"file": "doc2.pdf"})),
+        ([0xcc; 32], json!({"file": "doc3.pdf"})),
+        ([0xdd; 32], json!({"file": "doc4.pdf"})),
+        ([0xee; 32], json!({"file": "doc5.pdf"})),
+    ];
+
+    let initial_leaves: Vec<Hash> = initial_entries
+        .iter()
+        .map(|(payload, metadata)| {
+            let metadata_hash = canonicalize_and_hash(metadata);
+            compute_leaf_hash(payload, &metadata_hash)
+        })
+        .collect();
+
+    let old_root = compute_root(&initial_leaves);
+
+    // Grow tree to 10 entries
+    let new_entries = [
+        ([0x11; 32], json!({"file": "doc6.pdf"})),
+        ([0x22; 32], json!({"file": "doc7.pdf"})),
+        ([0x33; 32], json!({"file": "doc8.pdf"})),
+        ([0x44; 32], json!({"file": "doc9.pdf"})),
+        ([0x55; 32], json!({"file": "doc10.pdf"})),
+    ];
+
+    let mut all_leaves = initial_leaves;
+    for (payload, metadata) in &new_entries {
+        let metadata_hash = canonicalize_and_hash(metadata);
+        all_leaves.push(compute_leaf_hash(payload, &metadata_hash));
+    }
+
+    let new_root = compute_root(&all_leaves);
+
+    // Generate consistency proof
+    #[allow(clippy::cast_possible_truncation)]
+    let get_node = |level: u32, index: u64| -> Option<Hash> {
+        if level == 0 && (index as usize) < all_leaves.len() {
+            Some(all_leaves[index as usize])
+        } else {
+            None
+        }
+    };
+
+    let proof = generate_consistency_proof(5, 10, get_node).unwrap();
+
+    // Verify consistency
+    assert!(verify_consistency(&proof, &old_root, &new_root).unwrap());
+
+    // Verify tampering is detected
+    let tampered_old_root = [0xff; 32];
+    assert!(!verify_consistency(&proof, &tampered_old_root, &new_root).unwrap());
 }

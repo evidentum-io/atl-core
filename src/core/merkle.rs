@@ -209,6 +209,36 @@ pub const fn largest_power_of_2_less_than(n: u64) -> u64 {
     if power == n { power >> 1 } else { power }
 }
 
+/// Check if n is a power of two (and n > 0)
+///
+/// Used in RFC 9162 consistency proof verification to determine
+/// whether to prepend `first_hash` to `consistency_path`.
+///
+/// Note: Returns false for n=0, unlike `u64::is_power_of_two()`.
+///
+/// # Arguments
+/// * `n` - The number to check
+///
+/// # Returns
+/// * true if n is a power of two and n > 0, false otherwise
+///
+/// # Examples
+///
+/// ```
+/// use atl_core::core::merkle::is_power_of_two;
+///
+/// assert!(!is_power_of_two(0));
+/// assert!(is_power_of_two(1));
+/// assert!(is_power_of_two(2));
+/// assert!(!is_power_of_two(3));
+/// assert!(is_power_of_two(4));
+/// ```
+#[must_use]
+#[allow(clippy::manual_is_power_of_two)]
+pub const fn is_power_of_two(n: u64) -> bool {
+    n > 0 && (n & (n - 1)) == 0
+}
+
 /// Compute root hash from a slice of leaf hashes
 ///
 /// Uses the RFC 6962 algorithm for computing Merkle tree root.
@@ -613,10 +643,10 @@ where
 
 /// Generate consistency proof path recursively
 ///
-/// Helper function implementing RFC 6962 consistency proof algorithm.
-///
-/// This is a simplified implementation. For production use, a complete
-/// RFC 6962 Section 2.1.2 algorithm should be implemented.
+/// Helper function implementing RFC 9162 SUBPROOF algorithm.
+/// The `b` flag determines behavior when ``from_size`` == ``to_size``:
+/// - b=true (top level): return empty
+/// - b=false (recursion into right subtree): return [MTH(subtree)]
 fn generate_consistency_path<F>(
     from_size: u64,
     to_size: u64,
@@ -625,19 +655,42 @@ fn generate_consistency_path<F>(
 where
     F: Fn(u32, u64) -> Option<Hash>,
 {
-    // Base cases
+    // Initial call with b=true, offset=0
+    generate_consistency_path_inner(from_size, to_size, 0, true, get_node)
+}
+
+/// Internal recursive helper implementing RFC 9162 SUBPROOF(m, D[n], b)
+///
+/// # Arguments
+/// * `from_size` - m in RFC notation
+/// * `to_size` - n in RFC notation
+/// * `offset` - starting index of this subtree in the full tree
+/// * `b` - boolean flag per RFC 9162
+/// * `get_node` - node accessor
+fn generate_consistency_path_inner<F>(
+    from_size: u64,
+    to_size: u64,
+    offset: u64,
+    b: bool,
+    get_node: &F,
+) -> Result<Vec<Hash>, AtlError>
+where
+    F: Fn(u32, u64) -> Option<Hash>,
+{
+    // RFC 9162 SUBPROOF base case: m == n
     if from_size == to_size {
-        return Ok(Vec::new());
+        if b {
+            // b=true: return empty (at top level or left recursion)
+            return Ok(Vec::new());
+        }
+        // b=false: return [MTH(D[n])] (right subtree recursion needs the root)
+        let root = compute_subtree_root(offset, to_size, get_node)?;
+        return Ok(vec![root]);
     }
 
+    // from_size == 0 is handled by caller, but be defensive
     if from_size == 0 {
         return Ok(Vec::new());
-    }
-
-    // For power of 2, return old root
-    if from_size.is_power_of_two() && from_size == to_size {
-        let old_root = compute_subtree_root(0, from_size, get_node)?;
-        return Ok(vec![old_root]);
     }
 
     // Split at largest power of 2 less than to_size
@@ -646,37 +699,40 @@ where
     let mut path = Vec::new();
 
     if from_size <= k {
-        // Old root is in left subtree
-        // Recurse into left subtree
-        if from_size < k {
-            let left_path = generate_consistency_path(from_size, k, get_node)?;
-            path.extend(left_path);
-        } else {
-            // from_size == k, add left root
-            let left_root = compute_subtree_root(0, k, get_node)?;
-            path.push(left_root);
-        }
+        // RFC 9162: SUBPROOF(m, D[0:k], b) + MTH(D[k:n])
+        // Recurse into left subtree with same b flag
+        let left_path = generate_consistency_path_inner(from_size, k, offset, b, get_node)?;
+        path.extend(left_path);
 
         // Add right subtree root
         let right_size = to_size
             .checked_sub(k)
             .ok_or(AtlError::ArithmeticOverflow { operation: "consistency path: to_size - k" })?;
-        let right_root = compute_subtree_root(k, right_size, get_node)?;
+        let right_offset = offset
+            .checked_add(k)
+            .ok_or(AtlError::ArithmeticOverflow { operation: "consistency path: offset + k" })?;
+        let right_root = compute_subtree_root(right_offset, right_size, get_node)?;
         path.push(right_root);
     } else {
-        // Old root is in right subtree
-        let left_root = compute_subtree_root(0, k, get_node)?;
-        path.push(left_root);
-
-        // Recurse into right subtree
+        // RFC 9162: SUBPROOF(m-k, D[k:n], false) + MTH(D[0:k])
+        // Recurse into right subtree with b=false
         let right_from = from_size
             .checked_sub(k)
             .ok_or(AtlError::ArithmeticOverflow { operation: "consistency path: from_size - k" })?;
         let right_to = to_size.checked_sub(k).ok_or(AtlError::ArithmeticOverflow {
             operation: "consistency path: to_size - k (right)",
         })?;
-        let right_path = generate_consistency_path(right_from, right_to, get_node)?;
+        let right_offset = offset.checked_add(k).ok_or(AtlError::ArithmeticOverflow {
+            operation: "consistency path: offset + k (right)",
+        })?;
+        // Note: b=false when recursing into right subtree
+        let right_path =
+            generate_consistency_path_inner(right_from, right_to, right_offset, false, get_node)?;
         path.extend(right_path);
+
+        // Add left subtree root AFTER recursive result
+        let left_root = compute_subtree_root(offset, k, get_node)?;
+        path.push(left_root);
     }
 
     Ok(path)
@@ -763,8 +819,10 @@ pub fn verify_consistency(
         return Ok(true); // Any tree is consistent with empty tree
     }
 
-    // INVARIANT 4: Non-trivial consistency needs at least one hash
-    if proof.path.is_empty() {
+    // INVARIANT 4: Non-trivial consistency with non-power-of-2 from_size needs at least one hash
+    // When from_size IS a power of 2, RFC 9162 verification prepends old_root,
+    // so empty path can be valid in some edge cases (handled by verify_consistency_path)
+    if proof.path.is_empty() && !is_power_of_two(proof.from_size) {
         return Err(AtlError::InvalidProofStructure {
             reason: format!(
                 "non-trivial consistency (from={}, to={}) requires at least one hash",
@@ -791,35 +849,118 @@ pub fn verify_consistency(
     }
 
     // Verify the proof by reconstructing both old and new roots
-    Ok(verify_consistency_path(proof.from_size, proof.to_size, &proof.path, old_root, new_root))
+    verify_consistency_path(proof.from_size, proof.to_size, &proof.path, old_root, new_root)
 }
 
-/// Verify consistency proof path
+/// Verify consistency proof path per RFC 9162 Section 2.1.4.2
 ///
-/// Helper function that reconstructs old and new roots from proof path.
+/// Reconstructs both old and new roots from the proof path and verifies
+/// they match the provided root hashes.
+///
+/// # Algorithm
+///
+/// Implements RFC 9162 Section 2.1.4.2:
+/// 1. Validate inputs (sizes, bounds)
+/// 2. Handle empty proof (fail for non-trivial cases)
+/// 3. Prepend `old_root` if `from_size` is power of 2
+/// 4. Initialize fn, sn, fr, sr
+/// 5. Align by shifting while LSB(fn) set
+/// 6. Process each proof element
+/// 7. Verify fr == `old_root`, sr == `new_root`, sn == 0
+///
+/// # Arguments
+/// * `from_size` - Size of older tree
+/// * `to_size` - Size of newer tree
+/// * `path` - Proof hashes
+/// * `old_root` - Root hash of older tree
+/// * `new_root` - Root hash of newer tree
+///
+/// # Returns
+/// * `Ok(true)` - proof is mathematically valid
+/// * `Ok(false)` - proof is mathematically invalid (hash mismatch or sn != 0)
+///
+/// # Errors
+///
+/// Returns error if:
+/// - `from_size` is 0 (checked by caller but re-validated for safety)
+/// - `from_size` > `to_size` (checked by caller but re-validated for safety)
+/// - Arithmetic overflow occurs during computation
+///
+/// # Note
+/// This function implements the core RFC 9162 verification algorithm.
+/// Input validation is primarily done by the caller `verify_consistency()`,
+/// but critical invariants are re-checked here for defense in depth.
 fn verify_consistency_path(
     from_size: u64,
     to_size: u64,
     path: &[Hash],
     old_root: &Hash,
     new_root: &Hash,
-) -> bool {
-    // This is a simplified verification that checks basic properties
-    // Full RFC 6962 verification requires reconstructing the tree structure
-
+) -> AtlResult<bool> {
+    // RFC 9162 Step 1: Empty proof always fails for non-trivial case
+    // (Trivial cases from_size == to_size and from_size == 0 are handled by caller)
     if path.is_empty() {
-        return from_size == to_size && use_constant_time_eq(old_root, new_root);
+        return Ok(false);
     }
 
-    // For power of 2, first hash should be old root
-    if from_size.is_power_of_two() && !path.is_empty() && !use_constant_time_eq(&path[0], old_root)
-    {
-        return false;
+    // RFC 9162 Step 2: Prepend first_hash if first is exact power of 2
+    let path_vec: Vec<Hash> = if is_power_of_two(from_size) {
+        let mut v = vec![*old_root];
+        v.extend_from_slice(path);
+        v
+    } else {
+        path.to_vec()
+    };
+
+    // RFC 9162 Step 3: Initialize with checked arithmetic
+    let mut fn_ = from_size.checked_sub(1).ok_or(AtlError::ArithmeticOverflow {
+        operation: "consistency verification: from_size - 1",
+    })?;
+    let mut sn = to_size.checked_sub(1).ok_or(AtlError::ArithmeticOverflow {
+        operation: "consistency verification: to_size - 1",
+    })?;
+
+    // RFC 9162 Step 4: Align - shift while LSB(fn) is set (fn is odd)
+    while fn_ & 1 == 1 {
+        fn_ >>= 1;
+        sn >>= 1;
     }
 
-    // For a complete verification, we would need to reconstruct the tree
-    // This simplified version checks basic invariants
-    true
+    // RFC 9162 Step 5: Initialize fr and sr
+    let mut fr = path_vec[0];
+    let mut sr = path_vec[0];
+
+    // RFC 9162 Step 6: Process each subsequent element
+    for c in path_vec.iter().skip(1) {
+        // Step 6a: If sn == 0, proof is invalid
+        if sn == 0 {
+            return Ok(false);
+        }
+
+        // Step 6b/6c: Compute new fr and sr
+        if fn_ & 1 == 1 || fn_ == sn {
+            // Step 6b: LSB(fn) set OR fn == sn
+            // Hash c on LEFT: HASH(c || current)
+            fr = hash_children(c, &fr);
+            sr = hash_children(c, &sr);
+
+            // Inner loop: shift while LSB(fn) NOT set and fn != 0
+            while fn_ & 1 == 0 && fn_ != 0 {
+                fn_ >>= 1;
+                sn >>= 1;
+            }
+        } else {
+            // Step 6c: Hash current on LEFT: HASH(current || c)
+            sr = hash_children(&sr, c);
+        }
+
+        // Step 6d: Shift both
+        fn_ >>= 1;
+        sn >>= 1;
+    }
+
+    // RFC 9162 Step 7: Final verification (constant-time)
+    Ok(use_constant_time_eq(&fr, old_root) && use_constant_time_eq(&sr, new_root) && sn == 0)
 }
 
 /// Constant-time equality comparison
@@ -1335,7 +1476,7 @@ mod tests {
         assert!(err.to_string().contains("test operation"));
     }
 
-    // ========== TEST-4: Boundary and Overflow Tests ==========
+    // ========== Boundary and Overflow Tests ==========
     // Category 1: verify_inclusion Error Cases
 
     #[test]
@@ -1569,5 +1710,672 @@ mod tests {
         let err = AtlError::InvalidProofStructure { reason: "test structure".to_string() };
         let msg = err.to_string();
         assert!(msg.contains("test structure"), "Should contain reason");
+    }
+
+    #[test]
+    fn test_is_power_of_two() {
+        // Zero case (different from std)
+        assert!(!is_power_of_two(0));
+
+        // Powers of two
+        assert!(is_power_of_two(1));
+        assert!(is_power_of_two(2));
+        assert!(is_power_of_two(4));
+        assert!(is_power_of_two(8));
+        assert!(is_power_of_two(16));
+        assert!(is_power_of_two(32));
+        assert!(is_power_of_two(64));
+        assert!(is_power_of_two(1 << 32));
+        assert!(is_power_of_two(1 << 63));
+
+        // Non-powers of two
+        assert!(!is_power_of_two(3));
+        assert!(!is_power_of_two(5));
+        assert!(!is_power_of_two(6));
+        assert!(!is_power_of_two(7));
+        assert!(!is_power_of_two(9));
+        assert!(!is_power_of_two(15));
+        assert!(!is_power_of_two(17));
+        assert!(!is_power_of_two(u64::MAX));
+    }
+
+    // ========== RFC 9162 Consistency Proof Tests ==========
+
+    // Category 1: Roundtrip Tests - Power of 2 sizes
+
+    #[test]
+    fn test_consistency_proof_roundtrip_power_of_2() {
+        // Power-of-2 sizes: requires prepending old_root
+        for (from, to) in [(1, 2), (2, 4), (4, 8), (8, 16), (16, 32)] {
+            let leaves: Vec<Hash> = (0..to).map(|i| [i as u8; 32]).collect();
+            let old_root = compute_root(&leaves[..from as usize]);
+            let new_root = compute_root(&leaves);
+
+            let get_node = |level: u32, index: u64| -> Option<Hash> {
+                if level == 0 && (index as usize) < leaves.len() {
+                    Some(leaves[index as usize])
+                } else {
+                    None
+                }
+            };
+
+            let proof = generate_consistency_proof(from, to, get_node).unwrap();
+            assert!(
+                verify_consistency(&proof, &old_root, &new_root).unwrap(),
+                "Failed for power-of-2 transition {from} -> {to}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_consistency_proof_roundtrip_non_power_of_2() {
+        // Non-power-of-2 sizes: no prepending
+        for (from, to) in [(3, 5), (5, 7), (6, 9), (7, 15), (9, 17), (15, 31)] {
+            let leaves: Vec<Hash> = (0..to).map(|i| [i as u8; 32]).collect();
+            let old_root = compute_root(&leaves[..from as usize]);
+            let new_root = compute_root(&leaves);
+
+            let get_node = |level: u32, index: u64| -> Option<Hash> {
+                if level == 0 && (index as usize) < leaves.len() {
+                    Some(leaves[index as usize])
+                } else {
+                    None
+                }
+            };
+
+            let proof = generate_consistency_proof(from, to, get_node).unwrap();
+            assert!(
+                verify_consistency(&proof, &old_root, &new_root).unwrap(),
+                "Failed for non-power-of-2 transition {from} -> {to}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_consistency_proof_roundtrip_mixed() {
+        // Mixed: power-of-2 to non-power-of-2 and vice versa
+        for (from, to) in [(2, 3), (4, 5), (4, 7), (8, 9), (8, 15), (16, 17)] {
+            let leaves: Vec<Hash> = (0..to).map(|i| [i as u8; 32]).collect();
+            let old_root = compute_root(&leaves[..from as usize]);
+            let new_root = compute_root(&leaves);
+
+            let get_node = |level: u32, index: u64| -> Option<Hash> {
+                if level == 0 && (index as usize) < leaves.len() {
+                    Some(leaves[index as usize])
+                } else {
+                    None
+                }
+            };
+
+            let proof = generate_consistency_proof(from, to, get_node).unwrap();
+            assert!(
+                verify_consistency(&proof, &old_root, &new_root).unwrap(),
+                "Failed for mixed transition {from} -> {to}"
+            );
+        }
+    }
+
+    // Category 2: Boundary Tests
+
+    #[test]
+    fn test_consistency_proof_single_leaf_to_two() {
+        // Minimal non-trivial case: 1 -> 2
+        let leaves: Vec<Hash> = vec![[0u8; 32], [1u8; 32]];
+        let old_root = leaves[0]; // Single leaf is its own root
+        let new_root = compute_root(&leaves);
+
+        let get_node = |level: u32, index: u64| -> Option<Hash> {
+            if level == 0 && (index as usize) < leaves.len() {
+                Some(leaves[index as usize])
+            } else {
+                None
+            }
+        };
+
+        let proof = generate_consistency_proof(1, 2, get_node).unwrap();
+        assert!(verify_consistency(&proof, &old_root, &new_root).unwrap());
+    }
+
+    #[test]
+    fn test_consistency_proof_large_tree() {
+        // Large tree: 100 -> 1000
+        let leaves: Vec<Hash> = (0..1000u64)
+            .map(|i| {
+                let mut h = [0u8; 32];
+                h[..8].copy_from_slice(&i.to_le_bytes());
+                h
+            })
+            .collect();
+
+        let _old_root = compute_root(&leaves[..100]);
+        let _new_root = compute_root(&leaves);
+
+        let get_node = |level: u32, index: u64| -> Option<Hash> {
+            if level == 0 && (index as usize) < leaves.len() {
+                Some(leaves[index as usize])
+            } else {
+                None
+            }
+        };
+
+        let proof = generate_consistency_proof(100, 1000, get_node).unwrap();
+
+        // Proof size should be O(log n)
+        assert!(proof.path.len() <= 20, "Proof too large: {}", proof.path.len());
+    }
+
+    // Category 3: Invalid Proof Tests
+
+    #[test]
+    fn test_consistency_proof_wrong_old_root() {
+        let leaves: Vec<Hash> = (0..8).map(|i| [i as u8; 32]).collect();
+        let _old_root = compute_root(&leaves[..4]);
+        let new_root = compute_root(&leaves);
+
+        let get_node = |level: u32, index: u64| -> Option<Hash> {
+            if level == 0 && (index as usize) < leaves.len() {
+                Some(leaves[index as usize])
+            } else {
+                None
+            }
+        };
+
+        let proof = generate_consistency_proof(4, 8, get_node).unwrap();
+
+        // Wrong old root should fail (returns Ok(false))
+        let wrong_old_root = [0xff; 32];
+        assert!(!verify_consistency(&proof, &wrong_old_root, &new_root).unwrap());
+    }
+
+    #[test]
+    fn test_consistency_proof_wrong_new_root() {
+        let leaves: Vec<Hash> = (0..8).map(|i| [i as u8; 32]).collect();
+        let old_root = compute_root(&leaves[..4]);
+        let _new_root = compute_root(&leaves);
+
+        let get_node = |level: u32, index: u64| -> Option<Hash> {
+            if level == 0 && (index as usize) < leaves.len() {
+                Some(leaves[index as usize])
+            } else {
+                None
+            }
+        };
+
+        let proof = generate_consistency_proof(4, 8, get_node).unwrap();
+
+        // Wrong new root should fail (returns Ok(false))
+        let wrong_new_root = [0xff; 32];
+        assert!(!verify_consistency(&proof, &old_root, &wrong_new_root).unwrap());
+    }
+
+    #[test]
+    fn test_consistency_proof_tampered_path() {
+        let leaves: Vec<Hash> = (0..8).map(|i| [i as u8; 32]).collect();
+        let old_root = compute_root(&leaves[..4]);
+        let new_root = compute_root(&leaves);
+
+        let get_node = |level: u32, index: u64| -> Option<Hash> {
+            if level == 0 && (index as usize) < leaves.len() {
+                Some(leaves[index as usize])
+            } else {
+                None
+            }
+        };
+
+        let mut proof = generate_consistency_proof(4, 8, get_node).unwrap();
+
+        // Tamper with first hash in path
+        if !proof.path.is_empty() {
+            proof.path[0] = [0xff; 32];
+        }
+
+        assert!(!verify_consistency(&proof, &old_root, &new_root).unwrap());
+    }
+
+    #[test]
+    fn test_consistency_proof_truncated_path() {
+        let leaves: Vec<Hash> = (0..8).map(|i| [i as u8; 32]).collect();
+        let old_root = compute_root(&leaves[..4]);
+        let new_root = compute_root(&leaves);
+
+        let get_node = |level: u32, index: u64| -> Option<Hash> {
+            if level == 0 && (index as usize) < leaves.len() {
+                Some(leaves[index as usize])
+            } else {
+                None
+            }
+        };
+
+        let mut proof = generate_consistency_proof(4, 8, get_node).unwrap();
+
+        // Remove last hash (truncate)
+        if !proof.path.is_empty() {
+            proof.path.pop();
+        }
+
+        assert!(!verify_consistency(&proof, &old_root, &new_root).unwrap());
+    }
+
+    #[test]
+    fn test_consistency_proof_extended_path() {
+        let leaves: Vec<Hash> = (0..8).map(|i| [i as u8; 32]).collect();
+        let old_root = compute_root(&leaves[..4]);
+        let new_root = compute_root(&leaves);
+
+        let get_node = |level: u32, index: u64| -> Option<Hash> {
+            if level == 0 && (index as usize) < leaves.len() {
+                Some(leaves[index as usize])
+            } else {
+                None
+            }
+        };
+
+        let mut proof = generate_consistency_proof(4, 8, get_node).unwrap();
+
+        // Add extra hash (extend)
+        proof.path.push([0xaa; 32]);
+
+        assert!(!verify_consistency(&proof, &old_root, &new_root).unwrap());
+    }
+
+    #[test]
+    fn test_consistency_proof_swapped_hashes() {
+        let leaves: Vec<Hash> = (0..8).map(|i| [i as u8; 32]).collect();
+        let old_root = compute_root(&leaves[..4]);
+        let new_root = compute_root(&leaves);
+
+        let get_node = |level: u32, index: u64| -> Option<Hash> {
+            if level == 0 && (index as usize) < leaves.len() {
+                Some(leaves[index as usize])
+            } else {
+                None
+            }
+        };
+
+        let mut proof = generate_consistency_proof(4, 8, get_node).unwrap();
+
+        // Swap first two hashes if possible
+        if proof.path.len() >= 2 {
+            proof.path.swap(0, 1);
+            assert!(!verify_consistency(&proof, &old_root, &new_root).unwrap());
+        }
+    }
+
+    // Category 4: Empty/Trivial Tests
+
+    #[test]
+    fn test_consistency_proof_empty_path_nontrivial_fails() {
+        // Non-trivial case with empty path should fail
+        // Use non-power-of-2 from_size (3) to get error; power-of-2 returns Ok(false) per RFC 9162
+        let proof = ConsistencyProof { from_size: 3, to_size: 8, path: vec![] };
+
+        let old_root = [0u8; 32];
+        let new_root = [1u8; 32];
+
+        // Empty path for non-trivial case with non-power-of-2 from_size returns error
+        let result = verify_consistency(&proof, &old_root, &new_root);
+        assert!(matches!(result, Err(AtlError::InvalidProofStructure { .. })));
+    }
+
+    #[test]
+    fn test_consistency_proof_empty_path_power_of_2_fails() {
+        // Non-trivial case with empty path and power-of-2 from_size
+        // RFC 9162 prepends old_root, but algorithm still fails (sn != 0)
+        let proof = ConsistencyProof { from_size: 4, to_size: 8, path: vec![] };
+
+        let old_root = [0u8; 32];
+        let new_root = [1u8; 32];
+
+        // Empty path for power-of-2 from_size returns Ok(false), not error
+        let result = verify_consistency(&proof, &old_root, &new_root);
+        assert!(matches!(result, Ok(false)));
+    }
+
+    #[test]
+    fn test_consistency_proof_sizes_swapped() {
+        // from_size > to_size should return Err(InvalidConsistencyBounds)
+        let proof = ConsistencyProof { from_size: 8, to_size: 4, path: vec![[0u8; 32]] };
+
+        let result = verify_consistency(&proof, &[0u8; 32], &[0u8; 32]);
+        assert!(matches!(result, Err(AtlError::InvalidConsistencyBounds { .. })));
+    }
+
+    // ========== Adversarial Input Tests ==========
+
+    #[test]
+    fn test_adversarial_arbitrary_hashes_rejected() {
+        // Simplified impl would accept: power-of-2 with first hash == old_root
+        // + reasonable length
+
+        let from_size = 4u64; // Power of 2
+        let to_size = 8u64;
+
+        // Correct roots
+        let leaves: Vec<Hash> = (0..8).map(|i| [i as u8; 32]).collect();
+        let old_root = compute_root(&leaves[..4]);
+        let new_root = compute_root(&leaves);
+
+        // Malicious proof: correct first hash (old_root) but wrong other hashes
+        let malicious_proof = ConsistencyProof {
+            from_size,
+            to_size,
+            path: vec![
+                old_root,   // First hash matches old_root (bypasses simplified check)
+                [0xde; 32], // Random hash
+                [0xad; 32], // Random hash
+            ],
+        };
+
+        // RFC 9162 implementation must reject this - note: returns AtlResult<bool>
+        assert!(
+            !verify_consistency(&malicious_proof, &old_root, &new_root).unwrap(),
+            "Should reject proof with arbitrary hashes"
+        );
+    }
+
+    #[test]
+    fn test_adversarial_correct_length_wrong_content() {
+        // Generate a valid proof, then replace all hashes with random data
+        // while keeping length "reasonable"
+
+        let leaves: Vec<Hash> = (0..8).map(|i| [i as u8; 32]).collect();
+        let old_root = compute_root(&leaves[..4]);
+        let new_root = compute_root(&leaves);
+
+        let get_node = |level: u32, index: u64| -> Option<Hash> {
+            if level == 0 && (index as usize) < leaves.len() {
+                Some(leaves[index as usize])
+            } else {
+                None
+            }
+        };
+
+        let valid_proof = generate_consistency_proof(4, 8, get_node).unwrap();
+
+        // Create malicious proof with same length but random content
+        let malicious_proof = ConsistencyProof {
+            from_size: 4,
+            to_size: 8,
+            path: valid_proof.path.iter().map(|_| [0xba; 32]).collect(),
+        };
+
+        // Note: verify_consistency returns AtlResult<bool>
+        assert!(
+            !verify_consistency(&malicious_proof, &old_root, &new_root).unwrap(),
+            "Should reject proof with random content"
+        );
+    }
+
+    #[test]
+    fn test_adversarial_replay_different_tree() {
+        // Generate proof for one tree, try to use it on different tree
+
+        // Tree A: leaves 0..8
+        let leaves_a: Vec<Hash> = (0..8).map(|i| [i as u8; 32]).collect();
+        let _old_root_a = compute_root(&leaves_a[..4]);
+        let _new_root_a = compute_root(&leaves_a);
+
+        let get_node_a = |level: u32, index: u64| -> Option<Hash> {
+            if level == 0 && (index as usize) < leaves_a.len() {
+                Some(leaves_a[index as usize])
+            } else {
+                None
+            }
+        };
+
+        let proof_a = generate_consistency_proof(4, 8, get_node_a).unwrap();
+
+        // Tree B: different leaves (same sizes)
+        let leaves_b: Vec<Hash> = (100..108).map(|i| [i as u8; 32]).collect();
+        let old_root_b = compute_root(&leaves_b[..4]);
+        let new_root_b = compute_root(&leaves_b);
+
+        // Try to use proof from tree A on tree B - note: returns AtlResult<bool>
+        assert!(
+            !verify_consistency(&proof_a, &old_root_b, &new_root_b).unwrap(),
+            "Should reject proof from different tree"
+        );
+    }
+
+    #[test]
+    fn test_adversarial_replay_different_sizes() {
+        // Generate proof for (4 -> 8), try to use it for (3 -> 7)
+
+        let leaves: Vec<Hash> = (0..8).map(|i| [i as u8; 32]).collect();
+
+        let get_node = |level: u32, index: u64| -> Option<Hash> {
+            if level == 0 && (index as usize) < leaves.len() {
+                Some(leaves[index as usize])
+            } else {
+                None
+            }
+        };
+
+        let proof_4_8 = generate_consistency_proof(4, 8, get_node).unwrap();
+
+        // Compute roots for different sizes
+        let old_root_3 = compute_root(&leaves[..3]);
+        let new_root_7 = compute_root(&leaves[..7]);
+
+        // Modify proof to claim different sizes
+        let replayed_proof = ConsistencyProof { from_size: 3, to_size: 7, path: proof_4_8.path };
+
+        // Note: verify_consistency returns AtlResult<bool>
+        assert!(
+            !verify_consistency(&replayed_proof, &old_root_3, &new_root_7).unwrap(),
+            "Should reject proof with wrong sizes"
+        );
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    fn test_adversarial_boundary_sizes() {
+        // Test sizes that might cause edge cases in bit operations
+
+        let boundary_cases = [
+            (1, 2),     // Minimum non-trivial
+            (63, 64),   // Near power of 2
+            (64, 65),   // Just past power of 2
+            (127, 128), // Near power of 2
+            (128, 129), // Just past power of 2
+            (255, 256), // Near power of 2
+            (256, 257), // Just past power of 2
+        ];
+
+        for (from, to) in boundary_cases {
+            let leaves: Vec<Hash> = (0u64..to)
+                .map(|i| {
+                    let mut h = [0u8; 32];
+                    h[..8].copy_from_slice(&i.to_le_bytes());
+                    h
+                })
+                .collect();
+
+            let old_root = compute_root(&leaves[..from as usize]);
+            let new_root = compute_root(&leaves);
+
+            let get_node = |level: u32, index: u64| -> Option<Hash> {
+                if level == 0 && (index as usize) < leaves.len() {
+                    Some(leaves[index as usize])
+                } else {
+                    None
+                }
+            };
+
+            let proof = generate_consistency_proof(from, to, get_node).unwrap();
+
+            // Valid proof should pass - note: returns AtlResult<bool>
+            assert!(
+                verify_consistency(&proof, &old_root, &new_root).unwrap(),
+                "Valid proof failed for {from} -> {to}"
+            );
+
+            // Tampered proof should fail
+            if !proof.path.is_empty() {
+                let mut tampered = proof.clone();
+                tampered.path[0][0] ^= 0xff;
+                // Note: verify_consistency returns AtlResult<bool>
+                assert!(
+                    !verify_consistency(&tampered, &old_root, &new_root).unwrap(),
+                    "Tampered proof should fail for {from} -> {to}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    fn test_adversarial_all_ones_size() {
+        // Sizes like 0b111111 (all ones in binary) stress bit manipulation
+
+        let all_ones_cases = [
+            (3, 7),   // 0b11 -> 0b111
+            (7, 15),  // 0b111 -> 0b1111
+            (15, 31), // 0b1111 -> 0b11111
+            (31, 63), // 0b11111 -> 0b111111
+        ];
+
+        for (from, to) in all_ones_cases {
+            let leaves: Vec<Hash> = (0u64..to)
+                .map(|i| {
+                    let mut h = [0u8; 32];
+                    h[..8].copy_from_slice(&i.to_le_bytes());
+                    h
+                })
+                .collect();
+
+            let old_root = compute_root(&leaves[..from as usize]);
+            let new_root = compute_root(&leaves);
+
+            let get_node = |level: u32, index: u64| -> Option<Hash> {
+                if level == 0 && (index as usize) < leaves.len() {
+                    Some(leaves[index as usize])
+                } else {
+                    None
+                }
+            };
+
+            let proof = generate_consistency_proof(from, to, get_node).unwrap();
+
+            // Note: verify_consistency returns AtlResult<bool>
+            assert!(
+                verify_consistency(&proof, &old_root, &new_root).unwrap(),
+                "All-ones boundary failed for {from} -> {to}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_adversarial_zero_from_size_with_path() {
+        // from_size = 0 with non-empty path returns Err(InvalidProofStructure)
+        // NOTE: Spec incorrectly said InvalidTreeSize, but actual behavior is InvalidProofStructure
+
+        let proof = ConsistencyProof {
+            from_size: 0,
+            to_size: 8,
+            path: vec![[0xaa; 32], [0xbb; 32]], // Non-empty path
+        };
+
+        // With Safe Merkle API, from_size == 0 with non-empty path returns InvalidProofStructure
+        let result = verify_consistency(&proof, &[0u8; 32], &[0u8; 32]);
+        // Should return Err(InvalidProofStructure), not InvalidTreeSize
+        assert!(matches!(result, Err(AtlError::InvalidProofStructure { .. })));
+    }
+
+    #[test]
+    fn test_adversarial_very_long_proof() {
+        // Proof way longer than O(log n) should be rejected
+
+        let leaves: Vec<Hash> = (0..8).map(|i| [i as u8; 32]).collect();
+        let old_root = compute_root(&leaves[..4]);
+        let new_root = compute_root(&leaves);
+
+        let malicious_proof = ConsistencyProof {
+            from_size: 4,
+            to_size: 8,
+            path: vec![[0xaa; 32]; 100], // Way too many hashes
+        };
+
+        // Very long proof should be rejected (either Ok(false) or Err)
+        let result = verify_consistency(&malicious_proof, &old_root, &new_root);
+        assert!(
+            matches!(result, Ok(false) | Err(AtlError::InvalidProofStructure { .. })),
+            "Should reject overly long proof"
+        );
+    }
+
+    #[test]
+    fn test_adversarial_duplicate_hashes() {
+        // Proof with all same hashes
+
+        let leaves: Vec<Hash> = (0..8).map(|i| [i as u8; 32]).collect();
+        let old_root = compute_root(&leaves[..4]);
+        let new_root = compute_root(&leaves);
+
+        let get_node = |level: u32, index: u64| -> Option<Hash> {
+            if level == 0 && (index as usize) < leaves.len() {
+                Some(leaves[index as usize])
+            } else {
+                None
+            }
+        };
+
+        let valid_proof = generate_consistency_proof(4, 8, get_node).unwrap();
+
+        // Replace all hashes with the same value
+        let malicious_proof = ConsistencyProof {
+            from_size: 4,
+            to_size: 8,
+            path: vec![old_root; valid_proof.path.len()],
+        };
+
+        // Note: verify_consistency returns AtlResult<bool>
+        assert!(
+            !verify_consistency(&malicious_proof, &old_root, &new_root).unwrap(),
+            "Should reject proof with all duplicate hashes"
+        );
+    }
+
+    #[test]
+    fn test_regression_simplified_impl_vulnerability() {
+        // This test documents the exact vulnerability that existed in the
+        // simplified implementation and ensures it's fixed.
+
+        // The simplified impl (lines 670-691) did:
+        // 1. Check path not empty
+        // 2. If power-of-2 from_size: check path[0] == old_root
+        // 3. Check path.len() <= 2 * log2(to_size)
+        // 4. Return true (!)
+
+        // Attack: For from_size=4 (power of 2), to_size=8
+        // Construct proof where path[0] = old_root but rest is garbage
+
+        let from_size = 4u64;
+        let to_size = 8u64;
+
+        let leaves: Vec<Hash> = (0..8).map(|i| [i as u8; 32]).collect();
+        let old_root = compute_root(&leaves[..4]);
+        let new_root = compute_root(&leaves);
+
+        // This proof would have passed the old simplified check:
+        // - path not empty: yes
+        // - from_size is power of 2: yes, and path[0] == old_root: yes
+        // - path.len() (3) <= 2 * log2(8) = 6: yes
+        // - return true!
+        let attack_proof = ConsistencyProof {
+            from_size,
+            to_size,
+            path: vec![
+                old_root,   // Passes simplified check
+                [0x00; 32], // Garbage
+                [0x00; 32], // Garbage
+            ],
+        };
+
+        // RFC 9162 implementation MUST reject this - note: returns AtlResult<bool>
+        assert!(
+            !verify_consistency(&attack_proof, &old_root, &new_root).unwrap(),
+            "CRITICAL: Simplified implementation vulnerability not fixed!"
+        );
     }
 }

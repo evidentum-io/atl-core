@@ -1,6 +1,6 @@
 //! Merkle tree and cryptographic operation benchmarks
 //!
-//! Performance targets from TEST-1:
+//! Performance targets:
 //! - `sha256_hash`: < 1 microsec (32-byte input)
 //! - `leaf_hash`: < 1 microsec (single leaf)
 //! - `inclusion_verify`: < 10 microsec (log(n) hashes)
