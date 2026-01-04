@@ -1,14 +1,16 @@
 //! Merkle tree and cryptographic operation benchmarks
 //!
 //! Performance targets from TEST-1:
-//! - sha256_hash: < 1 microsec (32-byte input)
-//! - leaf_hash: < 1 microsec (single leaf)
-//! - inclusion_verify: < 10 microsec (log(n) hashes)
-//! - checkpoint_verify: < 200 microsec (Ed25519 verify)
-//! - jcs_canonicalize: < 100 microsec (typical metadata)
-//! - receipt_verify: < 500 microsec (full verification)
+//! - `sha256_hash`: < 1 microsec (32-byte input)
+//! - `leaf_hash`: < 1 microsec (single leaf)
+//! - `inclusion_verify`: < 10 microsec (log(n) hashes)
+//! - `checkpoint_verify`: < 200 microsec (Ed25519 verify)
+//! - `jcs_canonicalize`: < 100 microsec (typical metadata)
+//! - `receipt_verify`: < 500 microsec (full verification)
 
-use atl_core::core::checkpoint::{Checkpoint, CheckpointVerifier, compute_key_id};
+#![allow(missing_docs)]
+
+use atl_core::core::checkpoint::{compute_key_id, Checkpoint, CheckpointVerifier};
 use atl_core::core::jcs::{canonicalize, canonicalize_and_hash};
 use atl_core::core::merkle::{
     compute_leaf_hash, compute_root, generate_inclusion_proof, verify_inclusion, Hash,
@@ -29,7 +31,7 @@ fn setup_test_keypair() -> (SigningKey, [u8; 32]) {
 fn create_test_checkpoint(signing_key: &SigningKey) -> Checkpoint {
     let origin = [1u8; 32];
     let tree_size = 1000u64;
-    let timestamp = 1704067200000000000u64;
+    let timestamp = 1_704_067_200_000_000_000u64;
     let root_hash = [2u8; 32];
 
     let mut blob = [0u8; 98];
@@ -42,14 +44,7 @@ fn create_test_checkpoint(signing_key: &SigningKey) -> Checkpoint {
     let signature = signing_key.sign(&blob);
     let key_id = compute_key_id(&signing_key.verifying_key().to_bytes());
 
-    Checkpoint::new(
-        origin,
-        tree_size,
-        timestamp,
-        root_hash,
-        signature.to_bytes(),
-        key_id,
-    )
+    Checkpoint::new(origin, tree_size, timestamp, root_hash, signature.to_bytes(), key_id)
 }
 
 // ========== Benchmarks ==========
@@ -71,16 +66,15 @@ fn bench_compute_leaf_hash(c: &mut Criterion) {
     let metadata_hash = [0xbbu8; 32];
 
     c.bench_function("compute_leaf_hash", |b| {
-        b.iter(|| {
-            compute_leaf_hash(black_box(&payload_hash), black_box(&metadata_hash))
-        });
+        b.iter(|| compute_leaf_hash(black_box(&payload_hash), black_box(&metadata_hash)));
     });
 }
 
 fn bench_compute_root(c: &mut Criterion) {
     let mut group = c.benchmark_group("compute_root");
 
-    for size in [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1000].iter() {
+    for size in &[1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1000] {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let leaves: Vec<Hash> = (0..*size).map(|i| [(i % 256) as u8; 32]).collect();
 
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, _| {
@@ -94,10 +88,12 @@ fn bench_compute_root(c: &mut Criterion) {
 fn bench_verify_inclusion(c: &mut Criterion) {
     let mut group = c.benchmark_group("verify_inclusion");
 
-    for tree_size in [10, 100, 1000, 10000].iter() {
+    for tree_size in &[10, 100, 1000, 10000] {
+        #[allow(clippy::cast_possible_truncation)]
         let leaves: Vec<Hash> = (0..*tree_size).map(|i| [(i % 256) as u8; 32]).collect();
         let root = compute_root(&leaves);
 
+        #[allow(clippy::cast_possible_truncation)]
         let get_node = |level: u32, index: u64| -> Option<Hash> {
             if level == 0 && (index as usize) < leaves.len() {
                 Some(leaves[index as usize])
@@ -109,19 +105,15 @@ fn bench_verify_inclusion(c: &mut Criterion) {
         let leaf_index = tree_size / 2;
         let proof = generate_inclusion_proof(leaf_index, *tree_size, get_node).unwrap();
 
-        group.bench_with_input(
-            BenchmarkId::from_parameter(tree_size),
-            tree_size,
-            |b, _| {
-                b.iter(|| {
-                    verify_inclusion(
-                        black_box(&leaves[leaf_index as usize]),
-                        black_box(&proof),
-                        black_box(&root),
-                    )
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(tree_size), tree_size, |b, _| {
+            b.iter(|| {
+                verify_inclusion(
+                    black_box(&leaves[leaf_index as usize]),
+                    black_box(&proof),
+                    black_box(&root),
+                )
+            });
+        });
     }
 
     group.finish();
@@ -130,9 +122,11 @@ fn bench_verify_inclusion(c: &mut Criterion) {
 fn bench_generate_inclusion_proof(c: &mut Criterion) {
     let mut group = c.benchmark_group("generate_inclusion_proof");
 
-    for tree_size in [10, 100, 1000, 10000].iter() {
+    for tree_size in &[10, 100, 1000, 10000] {
+        #[allow(clippy::cast_possible_truncation)]
         let leaves: Vec<Hash> = (0..*tree_size).map(|i| [(i % 256) as u8; 32]).collect();
 
+        #[allow(clippy::cast_possible_truncation)]
         let get_node = |level: u32, index: u64| -> Option<Hash> {
             if level == 0 && (index as usize) < leaves.len() {
                 Some(leaves[index as usize])
@@ -143,15 +137,11 @@ fn bench_generate_inclusion_proof(c: &mut Criterion) {
 
         let leaf_index = tree_size / 2;
 
-        group.bench_with_input(
-            BenchmarkId::from_parameter(tree_size),
-            tree_size,
-            |b, _| {
-                b.iter(|| {
-                    generate_inclusion_proof(black_box(leaf_index), black_box(*tree_size), get_node)
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(tree_size), tree_size, |b, _| {
+            b.iter(|| {
+                generate_inclusion_proof(black_box(leaf_index), black_box(*tree_size), get_node)
+            });
+        });
     }
 
     group.finish();
@@ -170,7 +160,7 @@ fn bench_jcs_canonicalize(c: &mut Criterion) {
     // Typical metadata
     let typical = json!({
         "filename": "important_contract.pdf",
-        "size": 1024567,
+        "size": 1_024_567,
         "mime_type": "application/pdf",
         "created": "2026-01-15T10:30:00Z",
         "tags": ["contract", "important", "signed"]
@@ -183,7 +173,7 @@ fn bench_jcs_canonicalize(c: &mut Criterion) {
     // Complex nested metadata
     let complex = json!({
         "filename": "report.pdf",
-        "size": 5242880,
+        "size": 5_242_880,
         "metadata": {
             "author": "John Doe",
             "department": "Engineering",
@@ -211,7 +201,7 @@ fn bench_jcs_canonicalize(c: &mut Criterion) {
 fn bench_jcs_canonicalize_and_hash(c: &mut Criterion) {
     let metadata = json!({
         "filename": "document.pdf",
-        "size": 1024567,
+        "size": 1_024_567,
         "created": "2026-01-15T10:30:00Z"
     });
 

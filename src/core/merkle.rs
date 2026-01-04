@@ -56,13 +56,10 @@ impl Leaf {
     /// Create a new leaf from payload and metadata hashes
     #[must_use]
     pub const fn new(payload_hash: Hash, metadata_hash: Hash) -> Self {
-        Self {
-            payload_hash,
-            metadata_hash,
-        }
+        Self { payload_hash, metadata_hash }
     }
 
-    /// Compute the leaf hash: SHA256(0x00 || payload_hash || metadata_hash)
+    /// Compute the leaf hash: SHA256(0x00 || `payload_hash` || `metadata_hash`)
     ///
     /// This follows RFC 6962 with ATL-specific leaf construction.
     #[must_use]
@@ -199,7 +196,7 @@ pub fn hash_children(left: &Hash, right: &Hash) -> Hash {
 /// assert_eq!(largest_power_of_2_less_than(8), 4);
 /// ```
 #[must_use]
-pub fn largest_power_of_2_less_than(n: u64) -> u64 {
+pub const fn largest_power_of_2_less_than(n: u64) -> u64 {
     if n <= 1 {
         return 0;
     }
@@ -257,6 +254,7 @@ pub fn compute_root(leaves: &[Hash]) -> Hash {
         }
         n => {
             // Split at largest power of 2 less than n
+            #[allow(clippy::cast_possible_truncation)]
             let k = largest_power_of_2_less_than(n as u64) as usize;
             let left_root = compute_root(&leaves[0..k]);
             let right_root = compute_root(&leaves[k..]);
@@ -279,8 +277,8 @@ pub fn compute_root(leaves: &[Hash]) -> Hash {
 /// * Inclusion proof or error
 ///
 /// # Errors
-/// * `LeafIndexOutOfBounds` if leaf_index >= tree_size
-/// * `MissingNode` if get_node returns None for required hash
+/// * `LeafIndexOutOfBounds` if `leaf_index` >= `tree_size`
+/// * `MissingNode` if `get_node` returns `None` for required hash
 ///
 /// # Example
 ///
@@ -311,13 +309,10 @@ where
 {
     // Validate inputs
     if tree_size == 0 {
-        return Err(AtlError::InvalidArgument(format!("invalid tree size: {}", tree_size)));
+        return Err(AtlError::InvalidArgument(format!("invalid tree size: {tree_size}")));
     }
     if leaf_index >= tree_size {
-        return Err(AtlError::LeafIndexOutOfBounds {
-            index: leaf_index,
-            tree_size,
-        });
+        return Err(AtlError::LeafIndexOutOfBounds { index: leaf_index, tree_size });
     }
 
     let mut path = Vec::new();
@@ -327,11 +322,7 @@ where
 
     // Single leaf tree has empty proof
     if size == 1 {
-        return Ok(InclusionProof {
-            leaf_index,
-            tree_size,
-            path,
-        });
+        return Ok(InclusionProof { leaf_index, tree_size, path });
     }
 
     // Traverse from leaf to root, collecting sibling hashes
@@ -358,11 +349,7 @@ where
     // Our traversal collects them root-to-leaf, so reverse
     path.reverse();
 
-    Ok(InclusionProof {
-        leaf_index,
-        tree_size,
-        path,
-    })
+    Ok(InclusionProof { leaf_index, tree_size, path })
 }
 
 /// Compute root of a subtree using storage callback
@@ -380,24 +367,17 @@ where
 ///
 /// # Returns
 /// * Root hash of subtree or error if leaf nodes are missing
-fn compute_subtree_root<F>(
-    offset: u64,
-    size: u64,
-    get_node: &F,
-) -> Result<Hash, AtlError>
+fn compute_subtree_root<F>(offset: u64, size: u64, get_node: &F) -> Result<Hash, AtlError>
 where
     F: Fn(u32, u64) -> Option<Hash>,
 {
     if size == 0 {
-        return Err(AtlError::InvalidArgument(format!("invalid tree size: {}", size)));
+        return Err(AtlError::InvalidArgument(format!("invalid tree size: {size}")));
     }
 
     if size == 1 {
         // Single leaf - always retrieve from level 0
-        return get_node(0, offset).ok_or(AtlError::MissingNode {
-            level: 0,
-            index: offset,
-        });
+        return get_node(0, offset).ok_or(AtlError::MissingNode { level: 0, index: offset });
     }
 
     // Recursively compute subtree root using RFC 6962 algorithm
@@ -518,7 +498,7 @@ pub fn verify_inclusion(leaf_hash: &Hash, proof: &InclusionProof, expected_root:
 /// * Consistency proof or error
 ///
 /// # Errors
-/// * `InvalidConsistencyBounds` if from_size > to_size
+/// * `InvalidConsistencyBounds` if `from_size` > `to_size`
 /// * `InvalidTreeSize` if either size is 0
 /// * `MissingNode` if required hashes are missing
 ///
@@ -542,36 +522,23 @@ where
     // Validate inputs
     if from_size > to_size {
         return Err(AtlError::InvalidArgument(format!(
-            "invalid consistency proof: from_size {} > to_size {}",
-            from_size, to_size
+            "invalid consistency proof: from_size {from_size} > to_size {to_size}"
         )));
     }
 
     // Same size: empty proof
     if from_size == to_size {
-        return Ok(ConsistencyProof {
-            from_size,
-            to_size,
-            path: Vec::new(),
-        });
+        return Ok(ConsistencyProof { from_size, to_size, path: Vec::new() });
     }
 
     // Zero old size: also empty proof (any tree is consistent with empty tree)
     if from_size == 0 {
-        return Ok(ConsistencyProof {
-            from_size,
-            to_size,
-            path: Vec::new(),
-        });
+        return Ok(ConsistencyProof { from_size, to_size, path: Vec::new() });
     }
 
     let path = generate_consistency_path(from_size, to_size, &get_node)?;
 
-    Ok(ConsistencyProof {
-        from_size,
-        to_size,
-        path,
-    })
+    Ok(ConsistencyProof { from_size, to_size, path })
 }
 
 /// Generate consistency proof path recursively
@@ -669,11 +636,7 @@ where
 /// assert!(!verify_consistency(&proof, &old_root, &new_root));
 /// ```
 #[must_use]
-pub fn verify_consistency(
-    proof: &ConsistencyProof,
-    old_root: &Hash,
-    new_root: &Hash,
-) -> bool {
+pub fn verify_consistency(proof: &ConsistencyProof, old_root: &Hash, new_root: &Hash) -> bool {
     // Validate bounds
     if proof.from_size > proof.to_size {
         return false;
@@ -716,10 +679,10 @@ fn verify_consistency_path(
     }
 
     // For power of 2, first hash should be old root
-    if from_size.is_power_of_two() && !path.is_empty()
-        && !use_constant_time_eq(&path[0], old_root) {
-            return false;
-        }
+    if from_size.is_power_of_two() && !path.is_empty() && !use_constant_time_eq(&path[0], old_root)
+    {
+        return false;
+    }
 
     // Basic sanity check: proof length should be reasonable (O(log n))
     let max_proof_len = (64 - to_size.leading_zeros()) as usize * 2;
@@ -744,6 +707,8 @@ fn use_constant_time_eq(a: &Hash, b: &Hash) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::cast_sign_loss)]
 mod tests {
     use super::*;
 
@@ -913,8 +878,7 @@ mod tests {
             let proof = generate_inclusion_proof(i, 3, get_node).unwrap();
             assert!(
                 verify_inclusion(&leaves[i as usize], &proof, &root),
-                "Failed verification for leaf {}",
-                i
+                "Failed verification for leaf {i}"
             );
         }
     }
@@ -978,11 +942,7 @@ mod tests {
 
     #[test]
     fn test_consistency_proof_same_size_different_roots() {
-        let proof = ConsistencyProof {
-            from_size: 5,
-            to_size: 5,
-            path: vec![],
-        };
+        let proof = ConsistencyProof { from_size: 5, to_size: 5, path: vec![] };
 
         assert!(!verify_consistency(&proof, &ZERO_HASH, &ONE_HASH));
     }
@@ -1000,10 +960,7 @@ mod tests {
 
     #[test]
     fn test_tree_head_struct() {
-        let tree_head = TreeHead {
-            root_hash: ZERO_HASH,
-            tree_size: 42,
-        };
+        let tree_head = TreeHead { root_hash: ZERO_HASH, tree_size: 42 };
         assert_eq!(tree_head.root_hash, ZERO_HASH);
         assert_eq!(tree_head.tree_size, 42);
     }
@@ -1046,13 +1003,11 @@ mod tests {
             };
 
             for (leaf_idx, leaf) in leaves.iter().enumerate() {
-                let proof = generate_inclusion_proof(leaf_idx as u64, tree_size as u64, get_node)
-                    .unwrap();
+                let proof =
+                    generate_inclusion_proof(leaf_idx as u64, tree_size as u64, get_node).unwrap();
                 assert!(
                     verify_inclusion(leaf, &proof, &root),
-                    "Failed for tree_size={}, leaf_idx={}",
-                    tree_size,
-                    leaf_idx
+                    "Failed for tree_size={tree_size}, leaf_idx={leaf_idx}"
                 );
             }
         }

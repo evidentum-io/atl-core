@@ -51,6 +51,7 @@ use sha2::{Digest, Sha256};
 /// let canonical = canonicalize(&value);
 /// assert_eq!(canonical, r#"{"apple":2,"zebra":1}"#);
 /// ```
+#[must_use]
 pub fn canonicalize(value: &Value) -> String {
     let mut output = String::new();
     canonicalize_impl(value, &mut output);
@@ -81,6 +82,7 @@ pub fn canonicalize(value: &Value) -> String {
 /// let hash2 = canonicalize_and_hash(&value);
 /// assert_eq!(hash1, hash2); // Deterministic
 /// ```
+#[must_use]
 pub fn canonicalize_and_hash(value: &Value) -> [u8; 32] {
     let canonical = canonicalize(value);
     let mut hasher = Sha256::new();
@@ -246,7 +248,8 @@ fn escape_string(s: &str, output: &mut String) {
             '\t' => output.push_str(r"\t"),
             // Control characters U+0000-U+001F (except those handled above)
             '\u{0000}'..='\u{001F}' => {
-                output.push_str(&format!(r"\u{:04x}", ch as u32));
+                use std::fmt::Write;
+                write!(output, r"\u{:04x}", ch as u32).unwrap();
             }
             // All other characters (including non-ASCII) output as-is
             _ => output.push(ch),
@@ -327,18 +330,12 @@ mod tests {
     #[test]
     fn test_array() {
         assert_eq!(canonicalize(&json!([1, 2, 3])), "[1,2,3]");
-        assert_eq!(
-            canonicalize(&json!(["a", "b", "c"])),
-            r#"["a","b","c"]"#
-        );
+        assert_eq!(canonicalize(&json!(["a", "b", "c"])), r#"["a","b","c"]"#);
     }
 
     #[test]
     fn test_nested_array() {
-        assert_eq!(
-            canonicalize(&json!([[1, 2], [3, 4]])),
-            "[[1,2],[3,4]]"
-        );
+        assert_eq!(canonicalize(&json!([[1, 2], [3, 4]])), "[[1,2],[3,4]]");
     }
 
     #[test]
@@ -454,7 +451,7 @@ mod tests {
 
         // Example: Simple object
         #[allow(clippy::excessive_precision)]
-        let input = json!({"numbers": [333333333.33333329, 1e+30, 4.5, 6, 2e-3, 0.000002]});
+        let input = json!({"numbers": [333_333_333.333_333_29, 1e+30, 4.5, 6, 2e-3, 0.000_002]});
         let canonical = canonicalize(&input);
 
         // Note: Rust's f64 formatting may lose precision for large numbers
@@ -502,10 +499,7 @@ mod tests {
             }
         });
         let canonical = canonicalize(&input);
-        assert_eq!(
-            canonical,
-            r#"{"level1":{"level2":{"level3":{"value":42}}}}"#
-        );
+        assert_eq!(canonical, r#"{"level1":{"level2":{"level3":{"value":42}}}}"#);
     }
 
     #[test]
@@ -522,10 +516,7 @@ mod tests {
     fn test_string_with_quotes_and_backslashes() {
         let input = json!(r#"He said "Hi!" and used \\ backslashes"#);
         let canonical = canonicalize(&input);
-        assert_eq!(
-            canonical,
-            r#""He said \"Hi!\" and used \\\\ backslashes""#
-        );
+        assert_eq!(canonical, r#""He said \"Hi!\" and used \\\\ backslashes""#);
     }
 
     #[test]

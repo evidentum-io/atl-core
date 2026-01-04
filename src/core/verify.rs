@@ -138,7 +138,7 @@ pub struct ReceiptVerifier {
 impl VerificationResult {
     /// Check if all critical verifications passed
     #[must_use]
-    pub fn is_valid(&self) -> bool {
+    pub const fn is_valid(&self) -> bool {
         self.is_valid
     }
 
@@ -165,19 +165,13 @@ impl ReceiptVerifier {
     /// Create a new verifier with a trusted public key
     #[must_use]
     pub fn new(verifier: CheckpointVerifier) -> Self {
-        Self {
-            checkpoint_verifier: verifier,
-            options: VerifyOptions::default(),
-        }
+        Self { checkpoint_verifier: verifier, options: VerifyOptions::default() }
     }
 
     /// Create with custom options
     #[must_use]
-    pub fn with_options(verifier: CheckpointVerifier, options: VerifyOptions) -> Self {
-        Self {
-            checkpoint_verifier: verifier,
-            options,
-        }
+    pub const fn with_options(verifier: CheckpointVerifier, options: VerifyOptions) -> Self {
+        Self { checkpoint_verifier: verifier, options }
     }
 
     /// Verify a receipt
@@ -216,15 +210,14 @@ impl ReceiptVerifier {
         }
 
         // Parse root hash for result
-        match parse_hash(&receipt.proof.root_hash) {
-            Ok(root) => result.root_hash = root,
-            Err(_) => {
-                result.errors.push(VerificationError::InvalidHash {
-                    field: "proof.root_hash".to_string(),
-                    message: "failed to parse root hash".to_string(),
-                });
-                return result;
-            }
+        if let Ok(root) = parse_hash(&receipt.proof.root_hash) {
+            result.root_hash = root;
+        } else {
+            result.errors.push(VerificationError::InvalidHash {
+                field: "proof.root_hash".to_string(),
+                message: "failed to parse root hash".to_string(),
+            });
+            return result;
         }
 
         // Consistency check: checkpoint.root_hash == proof.root_hash
@@ -253,10 +246,7 @@ impl ReceiptVerifier {
         }
 
         // STEP 3: Verify Signature
-        match verify_checkpoint_signature(
-            &receipt.proof.checkpoint,
-            &self.checkpoint_verifier,
-        ) {
+        match verify_checkpoint_signature(&receipt.proof.checkpoint, &self.checkpoint_verifier) {
             Ok(true) => result.signature_valid = true,
             Ok(false) | Err(_) => {
                 result.errors.push(VerificationError::SignatureFailed);
@@ -286,9 +276,8 @@ impl ReceiptVerifier {
         }
 
         // Determine overall validity
-        result.is_valid = result.inclusion_valid
-            && result.signature_valid
-            && result.errors.is_empty();
+        result.is_valid =
+            result.inclusion_valid && result.signature_valid && result.errors.is_empty();
 
         result
     }
@@ -309,18 +298,19 @@ impl ReceiptVerifier {
 /// Reconstruct leaf hash from payload hash and metadata
 ///
 /// STEP 1 of verification algorithm:
-/// 1. Decode payload_hash from "sha256:..."
-/// 2. Compute metadata_hash = SHA256(JCS(metadata))
-/// 3. Compute leaf_hash = SHA256(0x00 || payload_hash || metadata_hash)
+/// 1. Decode `payload_hash` from "sha256:..."
+/// 2. Compute `metadata_hash` = SHA256(JCS(metadata))
+/// 3. Compute `leaf_hash` = SHA256(0x00 || `payload_hash` || `metadata_hash`)
 fn reconstruct_leaf_hash(
     payload_hash_str: &str,
     metadata: &serde_json::Value,
 ) -> Result<[u8; 32], VerificationError> {
     // Decode payload hash
-    let payload_hash = parse_hash(payload_hash_str).map_err(|e| VerificationError::InvalidHash {
-        field: "entry.payload_hash".to_string(),
-        message: e.to_string(),
-    })?;
+    let payload_hash =
+        parse_hash(payload_hash_str).map_err(|e| VerificationError::InvalidHash {
+            field: "entry.payload_hash".to_string(),
+            message: e.to_string(),
+        })?;
 
     // Compute metadata hash via JCS
     let metadata_hash = canonicalize_and_hash(metadata);
@@ -338,28 +328,24 @@ fn verify_inclusion_proof(
     proof: &crate::core::receipt::ReceiptProof,
 ) -> Result<bool, VerificationError> {
     // Parse inclusion path
-    let path: Vec<[u8; 32]> = proof
-        .inclusion_path
-        .iter()
-        .map(|h| parse_hash(h))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| VerificationError::InvalidHash {
-            field: "proof.inclusion_path".to_string(),
+    let path: Vec<[u8; 32]> =
+        proof.inclusion_path.iter().map(|h| parse_hash(h)).collect::<Result<Vec<_>, _>>().map_err(
+            |e| VerificationError::InvalidHash {
+                field: "proof.inclusion_path".to_string(),
+                message: e.to_string(),
+            },
+        )?;
+
+    // Parse expected root
+    let expected_root =
+        parse_hash(&proof.root_hash).map_err(|e| VerificationError::InvalidHash {
+            field: "proof.root_hash".to_string(),
             message: e.to_string(),
         })?;
 
-    // Parse expected root
-    let expected_root = parse_hash(&proof.root_hash).map_err(|e| VerificationError::InvalidHash {
-        field: "proof.root_hash".to_string(),
-        message: e.to_string(),
-    })?;
-
     // Verify using Merkle module
-    let inclusion_proof = InclusionProof {
-        leaf_index: proof.leaf_index,
-        tree_size: proof.tree_size,
-        path,
-    };
+    let inclusion_proof =
+        InclusionProof { leaf_index: proof.leaf_index, tree_size: proof.tree_size, path };
 
     Ok(verify_inclusion(leaf_hash, &inclusion_proof, &expected_root))
 }
@@ -372,12 +358,14 @@ fn verify_checkpoint_signature(
     checkpoint: &crate::core::checkpoint::CheckpointJson,
     verifier: &CheckpointVerifier,
 ) -> Result<bool, VerificationError> {
-    use crate::core::checkpoint::{Checkpoint, parse_signature};
+    use crate::core::checkpoint::{parse_signature, Checkpoint};
 
     // Build Checkpoint from CheckpointJson
     let origin = parse_hash(&checkpoint.origin).map_err(|_| VerificationError::SignatureFailed)?;
-    let root_hash = parse_hash(&checkpoint.root_hash).map_err(|_| VerificationError::SignatureFailed)?;
-    let signature = parse_signature(&checkpoint.signature).map_err(|_| VerificationError::SignatureFailed)?;
+    let root_hash =
+        parse_hash(&checkpoint.root_hash).map_err(|_| VerificationError::SignatureFailed)?;
+    let signature =
+        parse_signature(&checkpoint.signature).map_err(|_| VerificationError::SignatureFailed)?;
     let key_id = parse_hash(&checkpoint.key_id).map_err(|_| VerificationError::SignatureFailed)?;
 
     let mut cp = Checkpoint::new(
@@ -391,9 +379,7 @@ fn verify_checkpoint_signature(
     cp.signature = signature;
 
     // Verify signature
-    cp.verify(verifier)
-        .map(|()| true)
-        .map_err(|_| VerificationError::SignatureFailed)
+    cp.verify(verifier).map(|()| true).map_err(|_| VerificationError::SignatureFailed)
 }
 
 /// Verify a single anchor
@@ -418,13 +404,16 @@ fn verify_anchor(anchor: &ReceiptAnchor, _expected_root: &[u8; 32]) -> AnchorVer
             // Full Bitcoin verification requires block headers (online)
             AnchorVerificationResult {
                 anchor_type: "bitcoin_ots".to_string(),
-                is_valid: true, // Basic presence check
+                is_valid: true,                         // Basic presence check
                 timestamp: Some(*bitcoin_block_height), // Use block height as proxy timestamp
                 error: None,
             }
         }
     }
 }
+
+/// Days in each month (non-leap year)
+const DAYS_IN_MONTH: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
 /// Parse ISO 8601 timestamp to nanoseconds (simple implementation)
 ///
@@ -471,7 +460,6 @@ fn parse_iso8601_to_nanos(timestamp: &str) -> Option<u64> {
     }
 
     // Validate day of month
-    const DAYS_IN_MONTH: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     let max_day = if month == 2 && is_leap_year(year) {
         29
     } else {
@@ -505,7 +493,6 @@ fn days_since_unix_epoch(year: i32, month: u32, day: u32) -> Option<u32> {
     }
 
     // Add days for complete months in the given year
-    const DAYS_IN_MONTH: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     for m in 1..month {
         let days_in_m = if m == 2 && is_leap_year(year) {
             29
@@ -522,7 +509,7 @@ fn days_since_unix_epoch(year: i32, month: u32, day: u32) -> Option<u32> {
 }
 
 /// Check if a year is a leap year
-fn is_leap_year(year: i32) -> bool {
+const fn is_leap_year(year: i32) -> bool {
     (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
 
@@ -595,11 +582,7 @@ pub fn verify_inclusion_only(
     let leaf_hash = compute_leaf_hash(payload_hash, &metadata_hash);
 
     // Create inclusion proof
-    let proof = InclusionProof {
-        leaf_index,
-        tree_size,
-        path: inclusion_path.to_vec(),
-    };
+    let proof = InclusionProof { leaf_index, tree_size, path: inclusion_path.to_vec() };
 
     // Verify
     verify_inclusion(&leaf_hash, &proof, expected_root)
@@ -612,7 +595,9 @@ mod tests {
     use super::*;
     use crate::core::checkpoint::Checkpoint;
     use crate::core::checkpoint::CheckpointJson;
-    use crate::core::receipt::{format_hash, format_signature, Receipt, ReceiptEntry, ReceiptProof};
+    use crate::core::receipt::{
+        format_hash, format_signature, Receipt, ReceiptEntry, ReceiptProof,
+    };
     use ed25519_dalek::{Signer, SigningKey};
     use serde_json::json;
     use uuid::Uuid;
@@ -636,16 +621,10 @@ mod tests {
         // Create checkpoint
         let origin = [0xBBu8; 32];
         let tree_size = 1u64;
-        let timestamp = 1234567890u64;
+        let timestamp = 1_234_567_890u64;
 
-        let mut checkpoint = Checkpoint::new(
-            origin,
-            tree_size,
-            timestamp,
-            root_hash,
-            [0u8; 64],
-            verifier.key_id(),
-        );
+        let mut checkpoint =
+            Checkpoint::new(origin, tree_size, timestamp, root_hash, [0u8; 64], verifier.key_id());
 
         // Sign checkpoint
         let blob = checkpoint.to_bytes();
@@ -749,10 +728,7 @@ mod tests {
         let result = verify_receipt(&receipt, &public_key).unwrap();
 
         assert!(!result.is_valid);
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| matches!(e, VerificationError::RootHashMismatch)));
+        assert!(result.errors.iter().any(|e| matches!(e, VerificationError::RootHashMismatch)));
     }
 
     #[test]
@@ -764,10 +740,7 @@ mod tests {
         let result = verify_receipt(&receipt, &public_key).unwrap();
 
         assert!(!result.is_valid);
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| matches!(e, VerificationError::TreeSizeMismatch)));
+        assert!(result.errors.iter().any(|e| matches!(e, VerificationError::TreeSizeMismatch)));
     }
 
     #[test]
@@ -781,9 +754,9 @@ mod tests {
         let result = verify_inclusion_only(
             &payload_hash,
             &metadata,
-            &[], // empty path for single leaf
-            0,   // leaf_index
-            1,   // tree_size
+            &[],        // empty path for single leaf
+            0,          // leaf_index
+            1,          // tree_size
             &leaf_hash, // root == leaf for single entry
         );
 
@@ -797,7 +770,7 @@ mod tests {
             leaf_hash: [0; 32],
             root_hash: [0; 32],
             tree_size: 1,
-            timestamp: 123456,
+            timestamp: 123_456,
             signature_valid: true,
             inclusion_valid: true,
             consistency_valid: None,
@@ -818,7 +791,7 @@ mod tests {
             leaf_hash: [0; 32],
             root_hash: [0; 32],
             tree_size: 1,
-            timestamp: 123456,
+            timestamp: 123_456,
             signature_valid: false,
             inclusion_valid: false,
             consistency_valid: None,
@@ -838,7 +811,7 @@ mod tests {
             leaf_hash: [0; 32],
             root_hash: [0; 32],
             tree_size: 1,
-            timestamp: 123456,
+            timestamp: 123_456,
             signature_valid: true,
             inclusion_valid: true,
             consistency_valid: None,
@@ -849,7 +822,7 @@ mod tests {
         result.anchor_results.push(AnchorVerificationResult {
             anchor_type: "rfc3161".to_string(),
             is_valid: true,
-            timestamp: Some(123456),
+            timestamp: Some(123_456),
             error: None,
         });
 
@@ -861,11 +834,8 @@ mod tests {
         let signing_key = SigningKey::from_bytes(&[42u8; 32]);
         let verifier = CheckpointVerifier::new(signing_key.verifying_key());
 
-        let options = VerifyOptions {
-            skip_anchors: true,
-            skip_consistency: true,
-            min_valid_anchors: 0,
-        };
+        let options =
+            VerifyOptions { skip_anchors: true, skip_consistency: true, min_valid_anchors: 0 };
 
         let receipt_verifier = ReceiptVerifier::with_options(verifier, options);
         assert!(receipt_verifier.options.skip_anchors);
@@ -923,7 +893,7 @@ mod tests {
     #[test]
     fn test_verify_anchor_bitcoin() {
         let anchor = ReceiptAnchor::BitcoinOts {
-            bitcoin_block_height: 700000,
+            bitcoin_block_height: 700_000,
             timestamp: "2024-01-01T00:00:00Z".to_string(),
             ots_proof: "base64:proof".to_string(),
         };
@@ -937,21 +907,18 @@ mod tests {
     #[test]
     fn test_parse_iso8601_to_nanos_valid() {
         // Unix epoch
-        assert_eq!(
-            parse_iso8601_to_nanos("1970-01-01T00:00:00Z"),
-            Some(0)
-        );
+        assert_eq!(parse_iso8601_to_nanos("1970-01-01T00:00:00Z"), Some(0));
 
         // Example timestamp: 2026-01-15T10:31:00Z
         assert_eq!(
             parse_iso8601_to_nanos("2026-01-15T10:31:00Z"),
-            Some(1768473060 * 1_000_000_000)
+            Some(1_768_473_060 * 1_000_000_000)
         );
 
         // Leap year test: 2024-02-29T12:00:00Z
         assert_eq!(
             parse_iso8601_to_nanos("2024-02-29T12:00:00Z"),
-            Some(1709208000 * 1_000_000_000)
+            Some(1_709_208_000 * 1_000_000_000)
         );
     }
 

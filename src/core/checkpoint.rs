@@ -172,14 +172,7 @@ impl Checkpoint {
         signature: [u8; 64],
         key_id: [u8; 32],
     ) -> Self {
-        Self {
-            origin,
-            tree_size,
-            timestamp,
-            root_hash,
-            signature,
-            key_id,
-        }
+        Self { origin, tree_size, timestamp, root_hash, signature, key_id }
     }
 
     /// Serialize checkpoint to 98-byte binary wire format
@@ -379,10 +372,7 @@ impl CheckpointVerifier {
     pub fn new(verifying_key: VerifyingKey) -> Self {
         let public_key_bytes = verifying_key.to_bytes();
         let key_id = compute_key_id(&public_key_bytes);
-        Self {
-            verifying_key,
-            key_id,
-        }
+        Self { verifying_key, key_id }
     }
 
     /// Create a verifier from raw Ed25519 public key bytes (32 bytes)
@@ -410,7 +400,7 @@ impl CheckpointVerifier {
     /// assert_eq!(key_id.len(), 32);
     /// ```
     #[must_use]
-    pub fn key_id(&self) -> [u8; 32] {
+    pub const fn key_id(&self) -> [u8; 32] {
         self.key_id
     }
 
@@ -426,9 +416,7 @@ impl CheckpointVerifier {
     /// Returns error if signature verification fails.
     pub fn verify(&self, blob: &[u8; CHECKPOINT_BLOB_SIZE], signature: &[u8; 64]) -> AtlResult<()> {
         let sig = Signature::from_bytes(signature);
-        self.verifying_key
-            .verify(blob, &sig)
-            .map_err(|_| AtlError::SignatureInvalid)
+        self.verifying_key.verify(blob, &sig).map_err(|_| AtlError::SignatureInvalid)
     }
 }
 
@@ -572,9 +560,7 @@ pub fn parse_signature(s: &str) -> AtlResult<[u8; 64]> {
         .strip_prefix("base64:")
         .ok_or_else(|| AtlError::InvalidSignature("missing base64: prefix".into()))?;
 
-    let bytes = STANDARD
-        .decode(b64_str)
-        .map_err(|e| AtlError::Base64Decode(e.to_string()))?;
+    let bytes = STANDARD.decode(b64_str).map_err(|e| AtlError::Base64Decode(e.to_string()))?;
 
     bytes.try_into().map_err(|_| {
         AtlError::InvalidSignature("invalid signature length, expected 64 bytes".into())
@@ -590,14 +576,8 @@ mod tests {
 
     #[test]
     fn test_checkpoint_blob_size() {
-        let checkpoint = Checkpoint::new(
-            [0u8; 32],
-            100,
-            1234567890,
-            [1u8; 32],
-            [2u8; 64],
-            [3u8; 32],
-        );
+        let checkpoint =
+            Checkpoint::new([0u8; 32], 100, 1_234_567_890, [1u8; 32], [2u8; 64], [3u8; 32]);
         let blob = checkpoint.to_bytes();
         assert_eq!(blob.len(), CHECKPOINT_BLOB_SIZE);
         assert_eq!(blob.len(), 98);
@@ -624,23 +604,17 @@ mod tests {
         let blob = checkpoint.to_bytes();
 
         // Tree size is little-endian: least significant byte first
-        assert_eq!(
-            &blob[50..58],
-            &[0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01]
-        );
+        assert_eq!(&blob[50..58], &[0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01]);
 
         // Timestamp is little-endian
-        assert_eq!(
-            &blob[58..66],
-            &[0x11, 0x10, 0x0F, 0x0E, 0x0D, 0x0C, 0x0B, 0x0A]
-        );
+        assert_eq!(&blob[58..66], &[0x11, 0x10, 0x0F, 0x0E, 0x0D, 0x0C, 0x0B, 0x0A]);
     }
 
     #[test]
     fn test_wire_format_layout() {
         let origin = [0xAAu8; 32];
         let root_hash = [0xBBu8; 32];
-        let checkpoint = Checkpoint::new(origin, 12345, 9876543210, root_hash, [0; 64], [0; 32]);
+        let checkpoint = Checkpoint::new(origin, 12345, 9_876_543_210, root_hash, [0; 64], [0; 32]);
         let blob = checkpoint.to_bytes();
 
         // Verify magic
@@ -653,10 +627,7 @@ mod tests {
         assert_eq!(u64::from_le_bytes(blob[50..58].try_into().unwrap()), 12345);
 
         // Verify timestamp
-        assert_eq!(
-            u64::from_le_bytes(blob[58..66].try_into().unwrap()),
-            9876543210
-        );
+        assert_eq!(u64::from_le_bytes(blob[58..66].try_into().unwrap()), 9_876_543_210);
 
         // Verify root_hash
         assert_eq!(&blob[66..98], &root_hash);
@@ -666,14 +637,14 @@ mod tests {
     fn test_from_bytes_valid() {
         let origin = [0x11u8; 32];
         let root_hash = [0x22u8; 32];
-        let checkpoint = Checkpoint::new(origin, 999, 123456789, root_hash, [0; 64], [0; 32]);
+        let checkpoint = Checkpoint::new(origin, 999, 123_456_789, root_hash, [0; 64], [0; 32]);
         let blob = checkpoint.to_bytes();
 
         let parsed = Checkpoint::from_bytes(&blob).unwrap();
 
         assert_eq!(parsed.origin, origin);
         assert_eq!(parsed.tree_size, 999);
-        assert_eq!(parsed.timestamp, 123456789);
+        assert_eq!(parsed.timestamp, 123_456_789);
         assert_eq!(parsed.root_hash, root_hash);
         // Signature and key_id are zeroed after from_bytes
         assert_eq!(parsed.signature, [0u8; 64]);
@@ -685,10 +656,7 @@ mod tests {
         let too_short = vec![0u8; 50];
         let result = Checkpoint::from_bytes(&too_short);
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            AtlError::InvalidCheckpointFormat(_)
-        ));
+        assert!(matches!(result.unwrap_err(), AtlError::InvalidCheckpointFormat(_)));
     }
 
     #[test]
@@ -697,18 +665,15 @@ mod tests {
         blob[0..18].copy_from_slice(b"INVALID-MAGIC-XXXX");
         let result = Checkpoint::from_bytes(&blob);
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            AtlError::InvalidCheckpointMagic
-        ));
+        assert!(matches!(result.unwrap_err(), AtlError::InvalidCheckpointMagic));
     }
 
     #[test]
     fn test_roundtrip_bytes() {
         let original = Checkpoint::new(
             [0x42; 32],
-            987654321,
-            1234567890123456789,
+            987_654_321,
+            1_234_567_890_123_456_789,
             [0x99; 32],
             [0xAA; 64],
             [0xBB; 32],
@@ -920,10 +885,7 @@ mod tests {
     fn test_parse_signature_no_prefix() {
         let result = parse_signature("MEUCIQD...");
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            AtlError::InvalidSignature(_)
-        ));
+        assert!(matches!(result.unwrap_err(), AtlError::InvalidSignature(_)));
     }
 
     #[test]
@@ -940,14 +902,8 @@ mod tests {
         let verifier = CheckpointVerifier::new(verifying_key);
 
         // Create and sign checkpoint
-        let mut original = Checkpoint::new(
-            [0x42; 32],
-            12345,
-            9876543210,
-            [0x99; 32],
-            [0; 64],
-            verifier.key_id,
-        );
+        let mut original =
+            Checkpoint::new([0x42; 32], 12345, 9_876_543_210, [0x99; 32], [0; 64], verifier.key_id);
 
         let blob = original.to_bytes();
         let signature = signing_key.sign(&blob);
@@ -962,21 +918,15 @@ mod tests {
 
     #[test]
     fn test_json_format() {
-        let checkpoint = Checkpoint::new(
-            [0xAA; 32],
-            1000,
-            1234567890,
-            [0xBB; 32],
-            [0xCC; 64],
-            [0xDD; 32],
-        );
+        let checkpoint =
+            Checkpoint::new([0xAA; 32], 1000, 1_234_567_890, [0xBB; 32], [0xCC; 64], [0xDD; 32]);
 
         let json = checkpoint.to_json();
 
         assert!(json.origin.starts_with("sha256:"));
         assert_eq!(json.tree_size, 1000);
         assert!(json.root_hash.starts_with("sha256:"));
-        assert_eq!(json.timestamp, 1234567890);
+        assert_eq!(json.timestamp, 1_234_567_890);
         assert!(json.signature.starts_with("base64:"));
         assert!(json.key_id.starts_with("sha256:"));
     }
@@ -997,14 +947,8 @@ mod tests {
 
     #[test]
     fn test_checkpoint_hex_methods() {
-        let checkpoint = Checkpoint::new(
-            [0x12; 32],
-            100,
-            123456,
-            [0x34; 32],
-            [0x56; 64],
-            [0x78; 32],
-        );
+        let checkpoint =
+            Checkpoint::new([0x12; 32], 100, 123_456, [0x34; 32], [0x56; 64], [0x78; 32]);
 
         let origin_hex = checkpoint.origin_hex();
         let root_hash_hex = checkpoint.root_hash_hex();
@@ -1070,9 +1014,9 @@ mod tests {
 
     #[test]
     fn test_checkpoint_equality() {
-        let cp1 = Checkpoint::new([1; 32], 100, 123456, [2; 32], [3; 64], [4; 32]);
-        let cp2 = Checkpoint::new([1; 32], 100, 123456, [2; 32], [3; 64], [4; 32]);
-        let cp3 = Checkpoint::new([1; 32], 101, 123456, [2; 32], [3; 64], [4; 32]);
+        let cp1 = Checkpoint::new([1; 32], 100, 123_456, [2; 32], [3; 64], [4; 32]);
+        let cp2 = Checkpoint::new([1; 32], 100, 123_456, [2; 32], [3; 64], [4; 32]);
+        let cp3 = Checkpoint::new([1; 32], 101, 123_456, [2; 32], [3; 64], [4; 32]);
 
         assert_eq!(cp1, cp2);
         assert_ne!(cp1, cp3);
@@ -1080,7 +1024,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_clone() {
-        let original = Checkpoint::new([1; 32], 100, 123456, [2; 32], [3; 64], [4; 32]);
+        let original = Checkpoint::new([1; 32], 100, 123_456, [2; 32], [3; 64], [4; 32]);
         let cloned = original.clone();
 
         assert_eq!(original, cloned);

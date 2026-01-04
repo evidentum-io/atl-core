@@ -158,11 +158,11 @@ pub enum ReceiptAnchor {
         /// ISO 8601 timestamp from TSA
         timestamp: String,
 
-        /// DER-encoded TimeStampResp ("base64:...")
+        /// DER-encoded `TimeStampResp` ("base64:...")
         token_der: String,
     },
 
-    /// OpenTimestamps / Bitcoin anchor
+    /// `OpenTimestamps` / Bitcoin anchor
     #[serde(rename = "bitcoin_ots")]
     BitcoinOts {
         /// ISO 8601 timestamp
@@ -192,7 +192,7 @@ impl Receipt {
     /// # Errors
     ///
     /// * `AtlError::InvalidReceipt` if JSON is malformed
-    /// * `AtlError::UnsupportedReceiptVersion` if spec_version is not "1.0.0"
+    /// * `AtlError::UnsupportedReceiptVersion` if `spec_version` is not "1.0.0"
     ///
     /// # Example
     ///
@@ -226,14 +226,12 @@ impl Receipt {
     /// assert_eq!(receipt.spec_version(), "1.0.0");
     /// ```
     pub fn from_json(json: &str) -> AtlResult<Self> {
-        let receipt: Receipt =
+        let receipt: Self =
             serde_json::from_str(json).map_err(|e| AtlError::InvalidReceipt(e.to_string()))?;
 
         // Validate spec version
         if receipt.spec_version != RECEIPT_SPEC_VERSION {
-            return Err(AtlError::UnsupportedReceiptVersion(
-                receipt.spec_version.clone(),
-            ));
+            return Err(AtlError::UnsupportedReceiptVersion(receipt.spec_version));
         }
 
         Ok(receipt)
@@ -265,7 +263,7 @@ impl Receipt {
 
     /// Get the entry ID
     #[must_use]
-    pub fn entry_id(&self) -> Uuid {
+    pub const fn entry_id(&self) -> Uuid {
         self.entry.id
     }
 
@@ -295,11 +293,7 @@ impl Receipt {
     ///
     /// * `AtlError::InvalidHash` if any hash format is invalid
     pub fn inclusion_path_bytes(&self) -> AtlResult<Vec<Hash>> {
-        self.proof
-            .inclusion_path
-            .iter()
-            .map(|h| parse_hash_string(h))
-            .collect()
+        self.proof.inclusion_path.iter().map(|h| parse_hash_string(h)).collect()
     }
 
     /// Check if receipt has anchors
@@ -310,19 +304,19 @@ impl Receipt {
 
     /// Check if receipt has consistency proof
     #[must_use]
-    pub fn has_consistency_proof(&self) -> bool {
+    pub const fn has_consistency_proof(&self) -> bool {
         self.proof.consistency_proof.is_some()
     }
 
     /// Get tree size from proof
     #[must_use]
-    pub fn tree_size(&self) -> u64 {
+    pub const fn tree_size(&self) -> u64 {
         self.proof.tree_size
     }
 
     /// Get leaf index
     #[must_use]
-    pub fn leaf_index(&self) -> u64 {
+    pub const fn leaf_index(&self) -> u64 {
         self.proof.leaf_index
     }
 }
@@ -345,15 +339,12 @@ impl Receipt {
 fn parse_hash_string(s: &str) -> AtlResult<Hash> {
     let hex_str = s
         .strip_prefix("sha256:")
-        .ok_or_else(|| AtlError::InvalidHash(format!("missing sha256: prefix in '{}'", s)))?;
+        .ok_or_else(|| AtlError::InvalidHash(format!("missing sha256: prefix in '{s}'")))?;
 
     let bytes = hex::decode(hex_str).map_err(|e| AtlError::InvalidHash(e.to_string()))?;
 
     if bytes.len() != 32 {
-        return Err(AtlError::InvalidHash(format!(
-            "expected 32 bytes, got {}",
-            bytes.len()
-        )));
+        return Err(AtlError::InvalidHash(format!("expected 32 bytes, got {}", bytes.len())));
     }
 
     let mut hash = [0u8; 32];
@@ -392,17 +383,12 @@ pub fn parse_base64_signature(s: &str) -> AtlResult<[u8; 64]> {
 
     let b64_str = s
         .strip_prefix("base64:")
-        .ok_or_else(|| AtlError::InvalidSignature(format!("missing base64: prefix in '{}'", s)))?;
+        .ok_or_else(|| AtlError::InvalidSignature(format!("missing base64: prefix in '{s}'")))?;
 
-    let bytes = STANDARD
-        .decode(b64_str)
-        .map_err(|e| AtlError::InvalidSignature(e.to_string()))?;
+    let bytes = STANDARD.decode(b64_str).map_err(|e| AtlError::InvalidSignature(e.to_string()))?;
 
     if bytes.len() != 64 {
-        return Err(AtlError::InvalidSignature(format!(
-            "expected 64 bytes, got {}",
-            bytes.len()
-        )));
+        return Err(AtlError::InvalidSignature(format!("expected 64 bytes, got {}", bytes.len())));
     }
 
     let mut sig = [0u8; 64];
@@ -479,10 +465,7 @@ mod tests {
         let receipt = Receipt::from_json(json).unwrap();
 
         assert_eq!(receipt.spec_version, "1.0.0");
-        assert_eq!(
-            receipt.entry.id.to_string(),
-            "550e8400-e29b-41d4-a716-446655440000"
-        );
+        assert_eq!(receipt.entry.id.to_string(), "550e8400-e29b-41d4-a716-446655440000");
         assert_eq!(receipt.proof.tree_size, 100);
         assert_eq!(receipt.proof.leaf_index, 42);
         assert!(receipt.anchors.is_empty());
@@ -547,10 +530,7 @@ mod tests {
         }"#;
 
         let result = Receipt::from_json(json);
-        assert!(matches!(
-            result,
-            Err(AtlError::UnsupportedReceiptVersion(_))
-        ));
+        assert!(matches!(result, Err(AtlError::UnsupportedReceiptVersion(_))));
     }
 
     #[test]
@@ -782,10 +762,7 @@ mod tests {
         let receipt = Receipt::from_json(json).unwrap();
 
         assert_eq!(receipt.spec_version(), "1.0.0");
-        assert_eq!(
-            receipt.entry_id().to_string(),
-            "550e8400-e29b-41d4-a716-446655440000"
-        );
+        assert_eq!(receipt.entry_id().to_string(), "550e8400-e29b-41d4-a716-446655440000");
         assert_eq!(receipt.tree_size(), 100);
         assert_eq!(receipt.leaf_index(), 42);
 

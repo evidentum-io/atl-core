@@ -10,8 +10,8 @@
 pub use crate::error::{AtlError, AtlResult};
 
 // Core crypto types
-pub use crate::core::merkle::{ConsistencyProof, Hash, InclusionProof, TreeHead};
 pub use crate::core::checkpoint::{Checkpoint, CheckpointVerifier};
+pub use crate::core::merkle::{ConsistencyProof, Hash, InclusionProof, TreeHead};
 pub use crate::core::receipt::{Receipt, ReceiptEntry, ReceiptProof};
 pub use crate::core::verify::{verify_receipt, VerificationResult};
 

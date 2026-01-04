@@ -2,7 +2,7 @@
 //!
 //! These tests verify end-to-end workflows using only the public API.
 
-use atl_core::core::checkpoint::{Checkpoint, CheckpointJson, CheckpointVerifier, compute_key_id};
+use atl_core::core::checkpoint::{compute_key_id, Checkpoint, CheckpointJson, CheckpointVerifier};
 use atl_core::core::jcs::{canonicalize, canonicalize_and_hash};
 use atl_core::core::merkle::{
     compute_leaf_hash, compute_root, generate_inclusion_proof, verify_inclusion, Hash,
@@ -26,7 +26,7 @@ fn generate_test_keypair() -> (SigningKey, VerifyingKey) {
 fn create_test_checkpoint(signing_key: &SigningKey) -> Checkpoint {
     let origin = [1u8; 32];
     let tree_size = 1u64;
-    let timestamp = 1704067200000000000u64;
+    let timestamp = 1_704_067_200_000_000_000u64;
     let root_hash = [2u8; 32];
 
     // Create wire format blob
@@ -146,6 +146,7 @@ fn test_end_to_end_multiple_entries() {
     let root = compute_root(&leaf_hashes);
 
     // Generate inclusion proof for second entry
+    #[allow(clippy::cast_possible_truncation)]
     let get_node = |level: u32, index: u64| -> Option<Hash> {
         if level == 0 && (index as usize) < leaf_hashes.len() {
             Some(leaf_hashes[index as usize])
@@ -189,7 +190,7 @@ fn test_receipt_with_metadata_roundtrip() {
     let mut receipt = create_test_receipt(&signing_key);
     receipt.entry.metadata = json!({
         "filename": "important_contract.pdf",
-        "size": 1024567,
+        "size": 1_024_567,
         "created": "2026-01-15T10:30:00Z",
         "tags": ["important", "contract", "signed"],
         "nested": {
@@ -205,24 +206,20 @@ fn test_receipt_with_metadata_roundtrip() {
     let restored = Receipt::from_json(&json).unwrap();
 
     // Verify metadata is preserved
-    assert_eq!(
-        receipt.entry.metadata["filename"],
-        restored.entry.metadata["filename"]
-    );
-    assert_eq!(
-        receipt.entry.metadata["nested"]["key1"],
-        restored.entry.metadata["nested"]["key1"]
-    );
+    assert_eq!(receipt.entry.metadata["filename"], restored.entry.metadata["filename"]);
+    assert_eq!(receipt.entry.metadata["nested"]["key1"], restored.entry.metadata["nested"]["key1"]);
 }
 
 #[test]
 fn test_merkle_tree_various_sizes() {
     // Test trees of different sizes
     for size in [1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 32] {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let leaves: Vec<Hash> = (0..size).map(|i| [i as u8; 32]).collect();
         let root = compute_root(&leaves);
 
         // Generate and verify proof for each leaf
+        #[allow(clippy::cast_possible_truncation)]
         let get_node = |level: u32, index: u64| -> Option<Hash> {
             if level == 0 && (index as usize) < leaves.len() {
                 Some(leaves[index as usize])
@@ -231,13 +228,12 @@ fn test_merkle_tree_various_sizes() {
             }
         };
 
+        #[allow(clippy::cast_sign_loss)]
         for (idx, leaf) in leaves.iter().enumerate() {
             let proof = generate_inclusion_proof(idx as u64, size as u64, get_node).unwrap();
             assert!(
                 verify_inclusion(leaf, &proof, &root),
-                "Failed for tree size {}, leaf index {}",
-                size,
-                idx
+                "Failed for tree size {size}, leaf index {idx}"
             );
         }
     }
@@ -269,7 +265,7 @@ fn test_checkpoint_json_roundtrip() {
         origin: format_hash(&[0x01; 32]),
         tree_size: 100,
         root_hash: format_hash(&[0x02; 32]),
-        timestamp: 1704067200000000000,
+        timestamp: 1_704_067_200_000_000_000,
         signature: format_signature(&[0x03; 64]),
         key_id: format_hash(&[0x04; 32]),
     };
@@ -313,10 +309,7 @@ fn test_invalid_receipt_version() {
     }"#;
 
     let result = Receipt::from_json(json);
-    assert!(matches!(
-        result,
-        Err(AtlError::UnsupportedReceiptVersion(_))
-    ));
+    assert!(matches!(result, Err(AtlError::UnsupportedReceiptVersion(_))));
 }
 
 #[test]
@@ -352,6 +345,7 @@ fn test_invalid_hash_format() {
 #[test]
 fn test_inclusion_proof_invalid_index() {
     let leaves = [[0u8; 32], [1u8; 32]];
+    #[allow(clippy::cast_possible_truncation)]
     let get_node = |level: u32, index: u64| -> Option<Hash> {
         if level == 0 && (index as usize) < leaves.len() {
             Some(leaves[index as usize])
@@ -373,8 +367,8 @@ fn test_checkpoint_verification_wrong_key() {
 
     // Try to verify with different key
     let wrong_key = SigningKey::from_bytes(&[99u8; 32]);
-    let wrong_verifier = CheckpointVerifier::from_bytes(&wrong_key.verifying_key().to_bytes())
-        .unwrap();
+    let wrong_verifier =
+        CheckpointVerifier::from_bytes(&wrong_key.verifying_key().to_bytes()).unwrap();
 
     let result = checkpoint.verify(&wrong_verifier);
     assert!(matches!(result, Err(AtlError::InvalidSignature(_))));
@@ -382,12 +376,13 @@ fn test_checkpoint_verification_wrong_key() {
 
 #[test]
 fn test_empty_tree_handling() {
+    use sha2::{Digest, Sha256};
+
     // Empty tree has a defined root
     let root = compute_root(&[]);
     assert_eq!(root.len(), 32);
 
     // Empty tree root is hash of empty string
-    use sha2::{Digest, Sha256};
     let expected: Hash = Sha256::digest([]).into();
     assert_eq!(root, expected);
 }
@@ -396,8 +391,10 @@ fn test_empty_tree_handling() {
 fn test_large_tree_proof_size() {
     // For a tree of 1000 leaves, proof should be ~10 hashes (log2(1000) ≈ 10)
     let tree_size = 1000;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let leaves: Vec<Hash> = (0..tree_size).map(|i| [(i % 256) as u8; 32]).collect();
 
+    #[allow(clippy::cast_possible_truncation)]
     let get_node = |level: u32, index: u64| -> Option<Hash> {
         if level == 0 && (index as usize) < leaves.len() {
             Some(leaves[index as usize])
@@ -406,6 +403,7 @@ fn test_large_tree_proof_size() {
         }
     };
 
+    #[allow(clippy::cast_sign_loss)]
     let proof = generate_inclusion_proof(500, tree_size as u64, get_node).unwrap();
 
     // Proof size should be O(log n)
@@ -453,10 +451,7 @@ fn test_receipt_helpers() {
 
     // Test helper methods
     assert_eq!(receipt.spec_version(), "1.0.0");
-    assert_eq!(
-        receipt.entry_id().to_string(),
-        "550e8400-e29b-41d4-a716-446655440000"
-    );
+    assert_eq!(receipt.entry_id().to_string(), "550e8400-e29b-41d4-a716-446655440000");
     assert_eq!(receipt.tree_size(), 1);
     assert_eq!(receipt.leaf_index(), 0);
     assert!(!receipt.has_anchors());
@@ -478,6 +473,7 @@ fn test_proof_verification_with_wrong_root() {
     let leaves = vec![[0u8; 32], [1u8; 32]];
     let _root = compute_root(&leaves);
 
+    #[allow(clippy::cast_possible_truncation)]
     let get_node = |level: u32, index: u64| -> Option<Hash> {
         if level == 0 && (index as usize) < leaves.len() {
             Some(leaves[index as usize])

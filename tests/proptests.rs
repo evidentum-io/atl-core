@@ -50,6 +50,7 @@ fn prop_valid_proof_always_verifies() {
         let leaf_index = 0u64;
         let root = compute_root(&leaves);
 
+        #[allow(clippy::cast_possible_truncation)]
         let get_node = |level: u32, index: u64| -> Option<Hash> {
             if level == 0 && (index as usize) < leaves.len() {
                 Some(leaves[index as usize])
@@ -73,6 +74,7 @@ fn prop_proof_size_is_logarithmic() {
         let tree_size = leaves.len() as u64;
         let leaf_index = 0u64;
 
+        #[allow(clippy::cast_possible_truncation)]
         let get_node = |level: u32, index: u64| -> Option<Hash> {
             if level == 0 && (index as usize) < leaves.len() {
                 Some(leaves[index as usize])
@@ -101,7 +103,7 @@ fn prop_proof_size_is_logarithmic() {
 #[test]
 fn prop_jcs_is_idempotent() {
     proptest!(|(json_str: String)| {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&format!("{{\"key\":\"{}\"}}", json_str)) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&format!("{{\"key\":\"{json_str}\"}}")) {
             let once = canonicalize(&json);
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&once) {
                 let twice = canonicalize(&parsed);
