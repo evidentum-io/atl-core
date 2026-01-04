@@ -506,7 +506,7 @@ fn test_jcs_handles_unicode() {
     assert!(canonical.contains("😀"));
 }
 
-// ========== EXPORT-1 Verification Tests ==========
+// ========== Public API Export Tests ==========
 // Tests for verifying public API exports after signature changes
 
 #[test]
@@ -590,7 +590,7 @@ fn test_verify_consistency_returns_result() {
     assert!(result.is_err());
 }
 
-// ========== MERKLE-4: RFC 9162 Consistency Verification Integration Tests ==========
+// ========== RFC 9162 Consistency Verification Integration Tests ==========
 
 #[test]
 fn test_end_to_end_consistency_verification() {

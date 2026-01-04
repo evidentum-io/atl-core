@@ -1476,7 +1476,7 @@ mod tests {
         assert!(err.to_string().contains("test operation"));
     }
 
-    // ========== TEST-4: Boundary and Overflow Tests ==========
+    // ========== Boundary and Overflow Tests ==========
     // Category 1: verify_inclusion Error Cases
 
     #[test]
@@ -1739,8 +1739,7 @@ mod tests {
         assert!(!is_power_of_two(u64::MAX));
     }
 
-    // ========== MERKLE-4: RFC 9162 Consistency Proof Tests ==========
-    // Unit tests for RFC 9162 consistency verification algorithm
+    // ========== RFC 9162 Consistency Proof Tests ==========
 
     // Category 1: Roundtrip Tests - Power of 2 sizes
 
@@ -2041,7 +2040,7 @@ mod tests {
         assert!(matches!(result, Err(AtlError::InvalidConsistencyBounds { .. })));
     }
 
-    // ========== MERKLE-6: Adversarial Input Tests ==========
+    // ========== Adversarial Input Tests ==========
 
     #[test]
     fn test_adversarial_arbitrary_hashes_rejected() {

@@ -5,8 +5,6 @@
 //! 2. A trusted public key
 //!
 //! No network access, no storage access required.
-//!
-//! Implementation: VERIFY-1
 
 use crate::core::checkpoint::{CheckpointVerifier, parse_hash};
 use crate::core::jcs::canonicalize_and_hash;

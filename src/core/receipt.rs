@@ -9,9 +9,8 @@
 //!
 //! ## What is NOT in this module
 //!
-//! - Receipt generation (see atl-server RECEIPT-GEN-1.md)
-//! - Receipt verification (see VERIFY-1.md)
-//! - Storage access (atl-server only)
+//! - Receipt generation (server-side only)
+//! - Storage access (server-side only)
 //!
 //! ## File Extension
 //!
