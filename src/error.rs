@@ -80,6 +80,38 @@ pub enum AtlError {
         index: u64,
     },
 
+    /// Tree size is zero or otherwise invalid
+    #[error("invalid tree size: {size} (reason: {reason})")]
+    InvalidTreeSize {
+        /// The invalid size value
+        size: u64,
+        /// Human-readable reason
+        reason: &'static str,
+    },
+
+    /// Consistency proof bounds are invalid (from > to)
+    #[error("invalid consistency bounds: from_size {from_size} > to_size {to_size}")]
+    InvalidConsistencyBounds {
+        /// The "from" size
+        from_size: u64,
+        /// The "to" size
+        to_size: u64,
+    },
+
+    /// Arithmetic operation would overflow
+    #[error("arithmetic overflow in {operation}")]
+    ArithmeticOverflow {
+        /// Description of the operation that overflowed
+        operation: &'static str,
+    },
+
+    /// Proof structure is invalid (wrong path length for tree geometry)
+    #[error("invalid proof structure: {reason}")]
+    InvalidProofStructure {
+        /// Detailed reason
+        reason: String,
+    },
+
     // ========== Checkpoint Errors ==========
     /// Invalid checkpoint wire format
     #[error("invalid checkpoint format: {0}")]
@@ -194,6 +226,10 @@ impl AtlError {
                 | Self::InclusionProofInvalid
                 | Self::ConsistencyProofInvalid
                 | Self::MissingNode { .. }
+                | Self::InvalidTreeSize { .. }
+                | Self::InvalidConsistencyBounds { .. }
+                | Self::ArithmeticOverflow { .. }
+                | Self::InvalidProofStructure { .. }
         )
     }
 }
@@ -296,6 +332,19 @@ mod tests {
         assert!(AtlError::TreeSizeMismatch { expected: 1, actual: 2 }.is_proof_error());
         assert!(AtlError::InvalidProofPath { expected: 5, actual: 3 }.is_proof_error());
         assert!(AtlError::MissingNode { level: 0, index: 0 }.is_proof_error());
+        assert!(
+            AtlError::InvalidTreeSize { size: 0, reason: "tree cannot be empty" }.is_proof_error()
+        );
+        assert!(
+            AtlError::InvalidConsistencyBounds { from_size: 100, to_size: 50 }.is_proof_error()
+        );
+        assert!(
+            AtlError::ArithmeticOverflow { operation: "proof path calculation" }.is_proof_error()
+        );
+        assert!(
+            AtlError::InvalidProofStructure { reason: "path length mismatch".into() }
+                .is_proof_error()
+        );
 
         assert!(!AtlError::InvalidHash("x".into()).is_proof_error());
         assert!(!AtlError::SignatureInvalid.is_proof_error());
@@ -363,6 +412,10 @@ mod tests {
             AtlError::ConsistencyProofInvalid,
             AtlError::InvalidProofPath { expected: 1, actual: 2 },
             AtlError::MissingNode { level: 0, index: 0 },
+            AtlError::InvalidTreeSize { size: 0, reason: "tree cannot be empty" },
+            AtlError::InvalidConsistencyBounds { from_size: 100, to_size: 50 },
+            AtlError::ArithmeticOverflow { operation: "proof path calculation" },
+            AtlError::InvalidProofStructure { reason: "path length mismatch".into() },
             AtlError::InvalidCheckpointFormat("bad".into()),
             AtlError::InvalidCheckpointMagic,
             AtlError::InvalidTimestamp("bad".into()),
@@ -389,5 +442,36 @@ mod tests {
     fn test_error_implements_std_error() {
         fn assert_error<T: std::error::Error>() {}
         assert_error::<AtlError>();
+    }
+
+    #[test]
+    fn test_invalid_tree_size_display() {
+        let err = AtlError::InvalidTreeSize { size: 0, reason: "tree cannot be empty" };
+        assert_eq!(err.to_string(), "invalid tree size: 0 (reason: tree cannot be empty)");
+        assert!(err.is_proof_error());
+        assert!(!err.is_verification_failure());
+    }
+
+    #[test]
+    fn test_invalid_consistency_bounds_display() {
+        let err = AtlError::InvalidConsistencyBounds { from_size: 100, to_size: 50 };
+        assert_eq!(err.to_string(), "invalid consistency bounds: from_size 100 > to_size 50");
+        assert!(err.is_proof_error());
+    }
+
+    #[test]
+    fn test_arithmetic_overflow_display() {
+        let err = AtlError::ArithmeticOverflow { operation: "proof path calculation" };
+        assert!(err.to_string().contains("arithmetic overflow"));
+        assert!(err.is_proof_error());
+    }
+
+    #[test]
+    fn test_invalid_proof_structure_display() {
+        let err = AtlError::InvalidProofStructure {
+            reason: "path length 5 exceeds maximum 3 for tree size 8".to_string(),
+        };
+        assert!(err.to_string().contains("invalid proof structure"));
+        assert!(err.is_proof_error());
     }
 }

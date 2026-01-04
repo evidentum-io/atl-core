@@ -158,7 +158,7 @@ fn test_end_to_end_multiple_entries() {
     let proof = generate_inclusion_proof(1, 3, get_node).unwrap();
 
     // Verify inclusion proof
-    assert!(verify_inclusion(&leaf_hashes[1], &proof, &root));
+    assert!(verify_inclusion(&leaf_hashes[1], &proof, &root).unwrap());
 }
 
 #[test]
@@ -232,7 +232,7 @@ fn test_merkle_tree_various_sizes() {
         for (idx, leaf) in leaves.iter().enumerate() {
             let proof = generate_inclusion_proof(idx as u64, size as u64, get_node).unwrap();
             assert!(
-                verify_inclusion(leaf, &proof, &root),
+                verify_inclusion(leaf, &proof, &root).unwrap(),
                 "Failed for tree size {size}, leaf index {idx}"
             );
         }
@@ -486,7 +486,7 @@ fn test_proof_verification_with_wrong_root() {
 
     // Verify with wrong root
     let wrong_root = [99u8; 32];
-    assert!(!verify_inclusion(&leaves[0], &proof, &wrong_root));
+    assert!(!verify_inclusion(&leaves[0], &proof, &wrong_root).unwrap());
 }
 
 #[test]
@@ -504,4 +504,88 @@ fn test_jcs_handles_unicode() {
     assert!(canonical.contains("☕"));
     assert!(canonical.contains("日本語"));
     assert!(canonical.contains("😀"));
+}
+
+// ========== EXPORT-1 Verification Tests ==========
+// Tests for verifying public API exports after signature changes
+
+#[test]
+fn test_public_api_exports() {
+    use atl_core::{
+        AtlError, AtlResult, ConsistencyProof, Hash, InclusionProof, verify_consistency,
+        verify_inclusion,
+    };
+
+    // Helper functions to verify signatures compile
+    fn check_verify_inclusion(leaf: &Hash, proof: &InclusionProof, root: &Hash) -> AtlResult<bool> {
+        verify_inclusion(leaf, proof, root)
+    }
+
+    fn check_verify_consistency(
+        proof: &ConsistencyProof,
+        old_root: &Hash,
+        new_root: &Hash,
+    ) -> AtlResult<bool> {
+        verify_consistency(proof, old_root, new_root)
+    }
+
+    // Verify error variants are accessible
+    let _: AtlError = AtlError::InvalidTreeSize { size: 0, reason: "test" };
+    let _: AtlError = AtlError::InvalidConsistencyBounds { from_size: 10, to_size: 5 };
+    let _: AtlError = AtlError::ArithmeticOverflow { operation: "test" };
+    let _: AtlError = AtlError::InvalidProofStructure { reason: "test".to_string() };
+
+    // Test actual usage with Result<bool>
+    let proof = InclusionProof { leaf_index: 0, tree_size: 1, path: vec![] };
+    let hash: Hash = [0u8; 32];
+
+    // This should compile with new Result<bool> return type
+    let result: bool = check_verify_inclusion(&hash, &proof, &hash).unwrap();
+    assert!(result);
+
+    // Test error handling
+    let proof = InclusionProof { leaf_index: 10, tree_size: 5, path: vec![] };
+    let result = check_verify_inclusion(&hash, &proof, &hash);
+    assert!(matches!(result, Err(AtlError::LeafIndexOutOfBounds { .. })));
+
+    // Test consistency proof
+    let consistency_proof = ConsistencyProof { from_size: 5, to_size: 5, path: vec![] };
+    let _result: bool = check_verify_consistency(&consistency_proof, &hash, &hash).unwrap();
+}
+
+#[test]
+fn test_verify_inclusion_returns_result() {
+    use atl_core::{Hash, InclusionProof, verify_inclusion};
+
+    // Valid single-leaf proof
+    let proof = InclusionProof { leaf_index: 0, tree_size: 1, path: vec![] };
+    let hash: Hash = [0u8; 32];
+
+    // New signature returns Result<bool>
+    let result = verify_inclusion(&hash, &proof, &hash);
+    assert!(result.is_ok());
+    assert!(result.unwrap());
+
+    // Invalid tree size returns error
+    let proof = InclusionProof { leaf_index: 0, tree_size: 0, path: vec![] };
+    let result = verify_inclusion(&hash, &proof, &hash);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_verify_consistency_returns_result() {
+    use atl_core::{ConsistencyProof, Hash, verify_consistency};
+
+    let root: Hash = [42u8; 32];
+
+    // Valid same-size proof
+    let proof = ConsistencyProof { from_size: 5, to_size: 5, path: vec![] };
+    let result = verify_consistency(&proof, &root, &root);
+    assert!(result.is_ok());
+    assert!(result.unwrap());
+
+    // Invalid bounds returns error
+    let proof = ConsistencyProof { from_size: 10, to_size: 5, path: vec![] };
+    let result = verify_consistency(&proof, &root, &root);
+    assert!(result.is_err());
 }

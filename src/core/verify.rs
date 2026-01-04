@@ -347,7 +347,8 @@ fn verify_inclusion_proof(
     let inclusion_proof =
         InclusionProof { leaf_index: proof.leaf_index, tree_size: proof.tree_size, path };
 
-    Ok(verify_inclusion(leaf_hash, &inclusion_proof, &expected_root))
+    verify_inclusion(leaf_hash, &inclusion_proof, &expected_root)
+        .map_err(|e| VerificationError::InclusionProofFailed { reason: e.to_string() })
 }
 
 /// Verify checkpoint signature
@@ -585,7 +586,7 @@ pub fn verify_inclusion_only(
     let proof = InclusionProof { leaf_index, tree_size, path: inclusion_path.to_vec() };
 
     // Verify
-    verify_inclusion(&leaf_hash, &proof, expected_root)
+    verify_inclusion(&leaf_hash, &proof, expected_root).unwrap_or(false)
 }
 
 // ========== Tests ==========
@@ -962,5 +963,64 @@ mod tests {
         // 2000-01-01 (leap years: 1972, 1976, ..., 1996; non-leap: 1900, 2100)
         // 30 years * 365 + 7 leap years (1972-1996) = 10957 days
         assert_eq!(days_since_unix_epoch(2000, 1, 1), Some(10957));
+    }
+
+    #[test]
+    fn test_verify_inclusion_only_zero_tree_size() {
+        let payload_hash = [1u8; 32];
+        let metadata = json!({"key": "value"});
+
+        // Zero tree size should return false (not panic)
+        let result = verify_inclusion_only(
+            &payload_hash,
+            &metadata,
+            &[],
+            0,
+            0, // Invalid tree size
+            &[0u8; 32],
+        );
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_verify_inclusion_only_index_out_of_bounds() {
+        let payload_hash = [1u8; 32];
+        let metadata = json!({"key": "value"});
+
+        // Index >= tree_size should return false
+        let result = verify_inclusion_only(
+            &payload_hash,
+            &metadata,
+            &[],
+            10, // Index
+            5,  // Tree size (index >= size)
+            &[0u8; 32],
+        );
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_verify_inclusion_proof_invalid_structure() {
+        let proof = ReceiptProof {
+            leaf_index: 0,
+            tree_size: 0, // Invalid!
+            root_hash: format_hash(&[0u8; 32]),
+            inclusion_path: vec![],
+            checkpoint: CheckpointJson {
+                origin: format_hash(&[0u8; 32]),
+                tree_size: 0,
+                root_hash: format_hash(&[0u8; 32]),
+                timestamp: 0,
+                signature: format_signature(&[0u8; 64]),
+                key_id: format_hash(&[0u8; 32]),
+            },
+            consistency_proof: None,
+        };
+
+        let leaf_hash = [0u8; 32];
+        let result = verify_inclusion_proof(&leaf_hash, &proof);
+
+        // Should return Err, not panic
+        assert!(matches!(result, Err(VerificationError::InclusionProofFailed { .. })));
     }
 }

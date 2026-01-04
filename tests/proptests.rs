@@ -60,7 +60,7 @@ fn prop_valid_proof_always_verifies() {
         };
 
         let proof = generate_inclusion_proof(leaf_index, tree_size, get_node)?;
-        prop_assert!(verify_inclusion(&leaves[0], &proof, &root));
+        prop_assert!(verify_inclusion(&leaves[0], &proof, &root).unwrap());
     });
 }
 
