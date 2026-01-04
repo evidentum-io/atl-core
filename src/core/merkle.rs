@@ -695,11 +695,8 @@ fn verify_consistency_path(
 ///
 /// Prevents timing attacks by comparing hashes in constant time.
 fn use_constant_time_eq(a: &Hash, b: &Hash) -> bool {
-    let mut result = 0u8;
-    for i in 0..32 {
-        result |= a[i] ^ b[i];
-    }
-    result == 0
+    use subtle::ConstantTimeEq;
+    a.ct_eq(b).into()
 }
 
 #[cfg(test)]
