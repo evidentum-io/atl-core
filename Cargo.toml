@@ -1,6 +1,6 @@
 [package]
 name = "atl-core"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 rust-version = "1.85.0"
 license = "Apache-2.0"
@@ -21,13 +21,17 @@ hex = "0.4"
 base64 = "0.22"
 subtle = "2"
 
+# Optional cryptographic dependencies
+cryptographic-message-syntax = { version = "0.27", optional = true }
+bcder = { version = "0.7", optional = true }
+
 [dev-dependencies]
 proptest = "1"
 criterion = "0.5"
 
 [features]
 default = []
-# No optional features - atl-core is always minimal
+rfc3161-verify = ["dep:cryptographic-message-syntax", "dep:bcder"]
 
 [[bench]]
 name = "merkle_bench"

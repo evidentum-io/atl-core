@@ -146,6 +146,28 @@ pub enum AtlError {
     #[error("receipt verification failed: {0}")]
     ReceiptVerificationFailed(String),
 
+    // ========== RFC 3161 Errors ==========
+    /// RFC 3161 timestamp token parsing failed
+    #[error("RFC 3161 parse error: {0}")]
+    Rfc3161ParseError(String),
+
+    /// RFC 3161 message imprint hash mismatch
+    #[error("RFC 3161 hash mismatch: token contains {token_hash}, expected {expected_hash}")]
+    Rfc3161HashMismatch {
+        /// Hash value found in token
+        token_hash: String,
+        /// Expected hash value
+        expected_hash: String,
+    },
+
+    /// RFC 3161 unsupported hash algorithm
+    #[error("RFC 3161 unsupported algorithm: {0}")]
+    Rfc3161UnsupportedAlgorithm(String),
+
+    /// RFC 3161 verification requires feature flag
+    #[error("RFC 3161 verification requires 'rfc3161-verify' feature")]
+    Rfc3161FeatureDisabled,
+
     // ========== Serialization Errors ==========
     /// JSON canonicalization error
     #[error("JCS error: {0}")]
@@ -190,6 +212,7 @@ impl AtlError {
                 | Self::InclusionProofInvalid
                 | Self::ConsistencyProofInvalid
                 | Self::OriginMismatch { .. }
+                | Self::Rfc3161HashMismatch { .. }
         )
     }
 
@@ -207,6 +230,8 @@ impl AtlError {
                 | Self::InvalidCheckpointFormat(_)
                 | Self::InvalidCheckpointMagic
                 | Self::InvalidReceipt(_)
+                | Self::Rfc3161ParseError(_)
+                | Self::Rfc3161UnsupportedAlgorithm(_)
                 | Self::Json(_)
                 | Self::Base64Decode(_)
                 | Self::HexDecode(_)
@@ -422,6 +447,13 @@ mod tests {
             AtlError::InvalidReceipt("bad".into()),
             AtlError::UnsupportedReceiptVersion("v2".into()),
             AtlError::ReceiptVerificationFailed("reason".into()),
+            AtlError::Rfc3161ParseError("invalid DER".into()),
+            AtlError::Rfc3161HashMismatch {
+                token_hash: "aabb".into(),
+                expected_hash: "ccdd".into(),
+            },
+            AtlError::Rfc3161UnsupportedAlgorithm("SHA1".into()),
+            AtlError::Rfc3161FeatureDisabled,
             AtlError::Jcs("error".into()),
             AtlError::Base64Decode("error".into()),
             AtlError::HexDecode("error".into()),
@@ -472,5 +504,35 @@ mod tests {
         };
         assert!(err.to_string().contains("invalid proof structure"));
         assert!(err.is_proof_error());
+    }
+
+    #[test]
+    fn test_rfc3161_error_display() {
+        let err = AtlError::Rfc3161ParseError("invalid DER".into());
+        assert_eq!(err.to_string(), "RFC 3161 parse error: invalid DER");
+
+        let err = AtlError::Rfc3161HashMismatch {
+            token_hash: "aabb".into(),
+            expected_hash: "ccdd".into(),
+        };
+        assert!(err.to_string().contains("aabb"));
+        assert!(err.to_string().contains("ccdd"));
+    }
+
+    #[test]
+    fn test_rfc3161_error_classification() {
+        assert!(
+            AtlError::Rfc3161HashMismatch {
+                token_hash: String::new(),
+                expected_hash: String::new(),
+            }
+            .is_verification_failure()
+        );
+
+        assert!(AtlError::Rfc3161ParseError(String::new()).is_format_error());
+        assert!(AtlError::Rfc3161UnsupportedAlgorithm(String::new()).is_format_error());
+
+        assert!(!AtlError::Rfc3161FeatureDisabled.is_verification_failure());
+        assert!(!AtlError::Rfc3161FeatureDisabled.is_format_error());
     }
 }
