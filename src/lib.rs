@@ -88,7 +88,8 @@ pub mod prelude;
 
 // Merkle tree types and functions
 pub use core::merkle::{
-    ConsistencyProof, Hash, InclusionProof, LEAF_PREFIX, NODE_PREFIX, TreeHead, compute_leaf_hash,
+    ConsistencyProof, Hash, InclusionProof, LEAF_PREFIX, Leaf, NODE_PREFIX, TreeHead,
+    compute_leaf_hash, compute_root, generate_consistency_proof, generate_inclusion_proof,
     hash_children, verify_consistency, verify_inclusion,
 };
 
@@ -109,6 +110,10 @@ pub use core::verify::{
     AnchorVerificationResult, ReceiptVerifier, VerificationError, VerificationResult,
     VerifyOptions, verify_receipt, verify_receipt_json,
 };
+
+// RFC 3161 timestamp verification (feature-gated)
+#[cfg(feature = "rfc3161-verify")]
+pub use core::verify::{ParsedTimestampToken, Rfc3161VerifyResult};
 
 // JCS canonicalization
 pub use core::jcs::{canonicalize, canonicalize_and_hash};
