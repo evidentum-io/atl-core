@@ -1,6 +1,6 @@
 [package]
 name = "atl-core"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 rust-version = "1.85.0"
 license = "Apache-2.0"
@@ -24,6 +24,7 @@ subtle = "2"
 # Optional cryptographic dependencies
 cryptographic-message-syntax = { version = "0.27", optional = true }
 bcder = { version = "0.7", optional = true }
+bitcoin_hashes = { version = "0.14", optional = true }
 
 [dev-dependencies]
 proptest = "1"
@@ -32,6 +33,7 @@ criterion = "0.5"
 [features]
 default = []
 rfc3161-verify = ["dep:cryptographic-message-syntax", "dep:bcder"]
+bitcoin-ots = ["dep:bitcoin_hashes"]
 
 [[bench]]
 name = "merkle_bench"

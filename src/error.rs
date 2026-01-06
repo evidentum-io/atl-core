@@ -168,6 +168,16 @@ pub enum AtlError {
     #[error("RFC 3161 verification requires 'rfc3161-verify' feature")]
     Rfc3161FeatureDisabled,
 
+    // ========== OTS (OpenTimestamps) Errors ==========
+    /// OTS proof hash does not match expected document hash
+    #[error("OTS hash mismatch: proof contains {proof_hash}, expected {expected_hash}")]
+    OtsHashMismatch {
+        /// Hash found in OTS proof `start_digest`
+        proof_hash: String,
+        /// Expected document hash
+        expected_hash: String,
+    },
+
     // ========== Serialization Errors ==========
     /// JSON canonicalization error
     #[error("JCS error: {0}")]
@@ -213,6 +223,7 @@ impl AtlError {
                 | Self::ConsistencyProofInvalid
                 | Self::OriginMismatch { .. }
                 | Self::Rfc3161HashMismatch { .. }
+                | Self::OtsHashMismatch { .. }
         )
     }
 
@@ -454,6 +465,7 @@ mod tests {
             },
             AtlError::Rfc3161UnsupportedAlgorithm("SHA1".into()),
             AtlError::Rfc3161FeatureDisabled,
+            AtlError::OtsHashMismatch { proof_hash: "aabb".into(), expected_hash: "ccdd".into() },
             AtlError::Jcs("error".into()),
             AtlError::Base64Decode("error".into()),
             AtlError::HexDecode("error".into()),
