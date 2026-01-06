@@ -325,7 +325,23 @@ fn test_verify_anchor_bitcoin() {
 
     let result = verify_anchor(&anchor, &root_hash);
     assert_eq!(result.anchor_type, "bitcoin_ots");
-    assert!(result.is_valid); // Basic presence check
+
+    #[cfg(feature = "bitcoin-ots")]
+    {
+        // With feature enabled, invalid proof should fail verification
+        assert!(!result.is_valid);
+        assert!(result.error.is_some());
+    }
+
+    #[cfg(not(feature = "bitcoin-ots"))]
+    {
+        // Without feature, should fail with feature disabled error
+        assert!(!result.is_valid);
+        assert_eq!(
+            result.error.as_deref(),
+            Some("Bitcoin OTS verification requires 'bitcoin-ots' feature")
+        );
+    }
 }
 
 #[test]

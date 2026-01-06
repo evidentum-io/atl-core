@@ -13,6 +13,9 @@ pub mod merkle;
 pub mod receipt;
 pub mod verify;
 
+#[cfg(feature = "bitcoin-ots")]
+pub mod ots;
+
 // Re-export commonly used types for ergonomic API
 
 // Checkpoint operations

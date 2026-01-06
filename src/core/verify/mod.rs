@@ -16,6 +16,9 @@ pub mod anchors;
 #[cfg(feature = "rfc3161-verify")]
 pub use anchors::rfc3161::{ParsedTimestampToken, Rfc3161VerifyResult};
 
+#[cfg(feature = "bitcoin-ots")]
+pub use anchors::bitcoin_ots::{OtsVerifyResult, verify_ots_anchor_impl};
+
 pub mod verifier;
 pub use verifier::ReceiptVerifier;
 

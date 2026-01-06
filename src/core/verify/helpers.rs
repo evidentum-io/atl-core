@@ -101,19 +101,15 @@ pub fn verify_checkpoint_signature(
 /// Verify a single anchor
 ///
 /// STEP 4 of verification algorithm:
-/// Verifies RFC 3161 timestamp tokens cryptographically.
-/// Bitcoin anchors still use basic presence check (requires online verification).
+/// Verifies RFC 3161 timestamp tokens and Bitcoin OTS anchors cryptographically.
 pub fn verify_anchor(anchor: &ReceiptAnchor, expected_root: &[u8; 32]) -> AnchorVerificationResult {
     match anchor {
         ReceiptAnchor::Rfc3161 { timestamp, token_der } => {
             verify_rfc3161_anchor_impl(timestamp, token_der, expected_root)
         }
-        ReceiptAnchor::BitcoinOts { bitcoin_block_height, .. } => AnchorVerificationResult {
-            anchor_type: "bitcoin_ots".to_string(),
-            is_valid: true,
-            timestamp: Some(*bitcoin_block_height),
-            error: None,
-        },
+        ReceiptAnchor::BitcoinOts { timestamp, ots_proof, .. } => {
+            verify_bitcoin_ots_anchor_impl(timestamp, ots_proof, expected_root)
+        }
     }
 }
 
@@ -142,5 +138,47 @@ pub fn verify_rfc3161_anchor_impl(
         is_valid: false,
         timestamp: parse_iso8601_to_nanos(timestamp),
         error: Some("RFC 3161 verification requires 'rfc3161-verify' feature".to_string()),
+    }
+}
+
+/// Verify Bitcoin OTS anchor implementation (with feature flag)
+#[cfg(feature = "bitcoin-ots")]
+pub fn verify_bitcoin_ots_anchor_impl(
+    timestamp: &str,
+    ots_proof: &str,
+    expected_root: &[u8; 32],
+) -> AnchorVerificationResult {
+    use super::anchors::bitcoin_ots::verify_ots_anchor_impl;
+
+    match verify_ots_anchor_impl(ots_proof, expected_root) {
+        Ok(_result) => AnchorVerificationResult {
+            anchor_type: "bitcoin_ots".to_string(),
+            is_valid: true,
+            timestamp: None, // Core doesn't know block time
+            error: None,
+        },
+        Err(e) => AnchorVerificationResult {
+            anchor_type: "bitcoin_ots".to_string(),
+            is_valid: false,
+            timestamp: super::parse_iso8601_to_nanos(timestamp),
+            error: Some(e.to_string()),
+        },
+    }
+}
+
+/// Verify Bitcoin OTS anchor implementation (without feature flag)
+#[cfg(not(feature = "bitcoin-ots"))]
+pub fn verify_bitcoin_ots_anchor_impl(
+    timestamp: &str,
+    _ots_proof: &str,
+    _expected_root: &[u8; 32],
+) -> AnchorVerificationResult {
+    use super::parse_iso8601_to_nanos;
+
+    AnchorVerificationResult {
+        anchor_type: "bitcoin_ots".to_string(),
+        is_valid: false,
+        timestamp: parse_iso8601_to_nanos(timestamp),
+        error: Some("Bitcoin OTS verification requires 'bitcoin-ots' feature".to_string()),
     }
 }

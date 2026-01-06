@@ -118,6 +118,10 @@ pub use core::verify::{ParsedTimestampToken, Rfc3161VerifyResult};
 // JCS canonicalization
 pub use core::jcs::{canonicalize, canonicalize_and_hash};
 
+// OTS (OpenTimestamps) parsing (feature-gated)
+#[cfg(feature = "bitcoin-ots")]
+pub use core::ots;
+
 // ============================================================================
 // Version Information
 // ============================================================================
