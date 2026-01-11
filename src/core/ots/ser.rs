@@ -429,6 +429,94 @@ impl DetachedTimestampFile {
         self.to_writer(&mut buf)?;
         Ok(buf)
     }
+
+    /// Creates a `DetachedTimestampFile` from a SHA256 hash and calendar response
+    ///
+    /// This is the primary method for creating OTS timestamps from calendar
+    /// server responses. Calendar servers accept document hashes and return
+    /// raw operation chains (pending attestations).
+    ///
+    /// # Arguments
+    ///
+    /// * `hash` - 32-byte SHA256 hash of the document
+    /// * `calendar_response` - Raw bytes from calendar server
+    ///
+    /// # Returns
+    ///
+    /// Complete timestamp file ready for serialization.
+    ///
+    /// # Errors
+    ///
+    /// * [`OtsError::InvalidOperation`] - Invalid operation in response
+    /// * [`OtsError::RecursionLimitExceeded`] - Response too deeply nested
+    /// * [`OtsError::IoError`] - I/O error during parsing
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// use atl_core::ots::DetachedTimestampFile;
+    ///
+    /// let document_hash: [u8; 32] = sha256(document);
+    /// let response = calendar_client.submit(&document_hash).await?;
+    ///
+    /// let ots_file = DetachedTimestampFile::from_calendar_response(
+    ///     document_hash,
+    ///     &response
+    /// )?;
+    ///
+    /// // Serialize to .ots format
+    /// let ots_bytes = ots_file.to_bytes()?;
+    /// std::fs::write("document.ots", &ots_bytes)?;
+    /// ```
+    pub fn from_calendar_response(
+        hash: [u8; 32],
+        calendar_response: &[u8],
+    ) -> Result<Self, OtsError> {
+        Self::from_calendar_response_with_digest_type(
+            hash.to_vec(),
+            calendar_response,
+            DigestType::Sha256,
+        )
+    }
+
+    /// Creates a `DetachedTimestampFile` from hash, calendar response, and digest type
+    ///
+    /// Use this method when working with non-SHA256 hashes.
+    ///
+    /// # Arguments
+    ///
+    /// * `hash` - Document hash (length must match `digest_type`)
+    /// * `calendar_response` - Raw bytes from calendar server
+    /// * `digest_type` - Hash algorithm used for document
+    ///
+    /// # Returns
+    ///
+    /// Complete timestamp file ready for serialization.
+    ///
+    /// # Errors
+    ///
+    /// * [`OtsError::InvalidDigestLength`] - Hash length doesn't match digest type
+    /// * [`OtsError::InvalidOperation`] - Invalid operation in response
+    /// * [`OtsError::RecursionLimitExceeded`] - Response too deeply nested
+    /// * [`OtsError::IoError`] - I/O error during parsing
+    pub fn from_calendar_response_with_digest_type(
+        hash: Vec<u8>,
+        calendar_response: &[u8],
+        digest_type: DigestType,
+    ) -> Result<Self, OtsError> {
+        // Validate hash length
+        if hash.len() != digest_type.digest_len() {
+            return Err(OtsError::InvalidDigestLength {
+                expected: digest_type.digest_len(),
+                actual: hash.len(),
+            });
+        }
+
+        // Parse calendar response into timestamp
+        let timestamp = Timestamp::from_calendar_response(hash, calendar_response)?;
+
+        Ok(Self { digest_type, timestamp })
+    }
 }
 
 #[cfg(test)]
@@ -825,5 +913,125 @@ mod tests {
 
         let file2 = file1.clone();
         assert_eq!(file1, file2);
+    }
+
+    #[test]
+    fn test_from_calendar_response_basic() {
+        use crate::core::ots::attestation::Attestation;
+
+        // Create a minimal calendar response: Prepend operation + PendingAttestation
+        // This matches the format returned by calendar servers
+        let mut response = Vec::new();
+        let mut ser = Serializer::new(&mut response);
+
+        // Prepend operation with data
+        ser.write_byte(0xf0).unwrap(); // Prepend tag
+        ser.write_bytes(&[0xca, 0xfe]).unwrap(); // Prepend data
+
+        // SHA256 operation (transforms the prepended data)
+        ser.write_byte(0x08).unwrap();
+
+        // Pending attestation (serialize writes 0x00 marker internally)
+        let att = Attestation::Pending { uri: "https://test.calendar.org".to_string() };
+        att.serialize(&mut ser).unwrap();
+
+        let hash = [0xaa; 32];
+        let result = DetachedTimestampFile::from_calendar_response(hash, &response);
+        assert!(result.is_ok(), "Failed to parse calendar response: {:?}", result.err());
+
+        let file = result.unwrap();
+        assert_eq!(file.digest_type, DigestType::Sha256);
+        assert_eq!(file.timestamp.start_digest, hash.to_vec());
+    }
+
+    #[test]
+    fn test_from_calendar_response_round_trip() {
+        use crate::core::ots::attestation::Attestation;
+
+        // Create a minimal calendar response: Prepend + SHA256 + PendingAttestation
+        let mut response = Vec::new();
+        let mut ser = Serializer::new(&mut response);
+
+        ser.write_byte(0xf0).unwrap(); // Prepend tag
+        ser.write_bytes(&[0xde, 0xad, 0xbe, 0xef]).unwrap(); // Prepend data
+        ser.write_byte(0x08).unwrap(); // SHA256
+        let att = Attestation::Pending { uri: "https://test.calendar.org".to_string() };
+        att.serialize(&mut ser).unwrap();
+
+        let hash = [0xbb; 32];
+
+        // Create from calendar response
+        let file1 = DetachedTimestampFile::from_calendar_response(hash, &response).unwrap();
+
+        // Serialize to .ots format
+        let ots_bytes = file1.to_bytes().unwrap();
+
+        // Should have magic header
+        assert!(ots_bytes.starts_with(MAGIC));
+
+        // Parse back from .ots format
+        let file2 = DetachedTimestampFile::from_bytes(&ots_bytes).unwrap();
+
+        assert_eq!(file1, file2);
+    }
+
+    #[test]
+    fn test_from_calendar_response_invalid_hash_length() {
+        use crate::core::ots::attestation::Attestation;
+
+        let mut response = Vec::new();
+        let mut ser = Serializer::new(&mut response);
+        ser.write_byte(0xf0).unwrap(); // Prepend tag
+        ser.write_bytes(&[0xaa, 0xbb]).unwrap(); // Prepend data
+        ser.write_byte(0x08).unwrap(); // SHA256
+        let att = Attestation::Pending { uri: "https://test.calendar.org".to_string() };
+        att.serialize(&mut ser).unwrap();
+
+        let short_hash = vec![0xaa; 16]; // Wrong length for SHA256
+
+        let result = DetachedTimestampFile::from_calendar_response_with_digest_type(
+            short_hash,
+            &response,
+            DigestType::Sha256,
+        );
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            OtsError::InvalidDigestLength { expected: 32, actual: 16 }
+        ));
+    }
+
+    #[test]
+    fn test_from_calendar_response_sha1() {
+        use crate::core::ots::attestation::Attestation;
+
+        let mut response = Vec::new();
+        let mut ser = Serializer::new(&mut response);
+        ser.write_byte(0xf0).unwrap(); // Prepend tag
+        ser.write_bytes(&[0xcc, 0xdd]).unwrap(); // Prepend data
+        ser.write_byte(0x08).unwrap(); // SHA256
+        let att = Attestation::Pending { uri: "https://test.calendar.org".to_string() };
+        att.serialize(&mut ser).unwrap();
+
+        let hash = vec![0xdd; 20]; // SHA1 length
+
+        let result = DetachedTimestampFile::from_calendar_response_with_digest_type(
+            hash.clone(),
+            &response,
+            DigestType::Sha1,
+        );
+
+        assert!(result.is_ok());
+        let file = result.unwrap();
+        assert_eq!(file.digest_type, DigestType::Sha1);
+        assert_eq!(file.timestamp.start_digest, hash);
+    }
+
+    #[test]
+    fn test_from_calendar_response_empty_response() {
+        let hash = [0xee; 32];
+        let result = DetachedTimestampFile::from_calendar_response(hash, &[]);
+        assert!(result.is_err());
     }
 }
