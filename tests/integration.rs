@@ -2,13 +2,13 @@
 //!
 //! These tests verify end-to-end workflows using only the public API.
 
-use atl_core::AtlError;
-use atl_core::core::checkpoint::{Checkpoint, CheckpointJson, CheckpointVerifier, compute_key_id};
+use atl_core::core::checkpoint::{compute_key_id, Checkpoint, CheckpointJson, CheckpointVerifier};
 use atl_core::core::jcs::{canonicalize, canonicalize_and_hash};
 use atl_core::core::merkle::{
-    Hash, compute_leaf_hash, compute_root, generate_inclusion_proof, verify_inclusion,
+    compute_leaf_hash, compute_root, generate_inclusion_proof, verify_inclusion, Hash,
 };
-use atl_core::core::receipt::{RECEIPT_SPEC_VERSION, Receipt, format_hash, format_signature};
+use atl_core::core::receipt::{format_hash, format_signature, Receipt, RECEIPT_SPEC_VERSION};
+use atl_core::AtlError;
 use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use serde_json::json;
 use uuid::Uuid;
@@ -533,8 +533,8 @@ fn test_jcs_handles_unicode() {
 #[test]
 fn test_public_api_exports() {
     use atl_core::{
-        AtlError, AtlResult, ConsistencyProof, Hash, InclusionProof, verify_consistency,
-        verify_inclusion,
+        verify_consistency, verify_inclusion, AtlError, AtlResult, ConsistencyProof, Hash,
+        InclusionProof,
     };
 
     // Helper functions to verify signatures compile
@@ -576,7 +576,7 @@ fn test_public_api_exports() {
 
 #[test]
 fn test_verify_inclusion_returns_result() {
-    use atl_core::{Hash, InclusionProof, verify_inclusion};
+    use atl_core::{verify_inclusion, Hash, InclusionProof};
 
     // Valid single-leaf proof
     let proof = InclusionProof { leaf_index: 0, tree_size: 1, path: vec![] };
@@ -595,7 +595,7 @@ fn test_verify_inclusion_returns_result() {
 
 #[test]
 fn test_verify_consistency_returns_result() {
-    use atl_core::{ConsistencyProof, Hash, verify_consistency};
+    use atl_core::{verify_consistency, ConsistencyProof, Hash};
 
     let root: Hash = [42u8; 32];
 
@@ -616,7 +616,7 @@ fn test_verify_consistency_returns_result() {
 #[test]
 fn test_end_to_end_consistency_verification() {
     use atl_core::core::merkle::{
-        Hash, compute_leaf_hash, compute_root, generate_consistency_proof, verify_consistency,
+        compute_leaf_hash, compute_root, generate_consistency_proof, verify_consistency, Hash,
     };
 
     // Full workflow: create tree, grow it, verify consistency
@@ -685,14 +685,15 @@ const FREETSA_TOKEN: &str = "MIIVSQYJKoZIhvcNAQcCoIIVOjCCFTYCAQMxDzANBglghkgBZQM
 #[cfg(feature = "rfc3161-verify")]
 #[test]
 fn test_receipt_with_rfc3161_anchor_wrong_hash() {
-    use atl_core::{ReceiptAnchor, verify_receipt};
+    use atl_core::{verify_receipt, ReceiptAnchor};
 
     let (signing_key, verifying_key) = generate_test_keypair();
     let mut receipt = create_test_receipt(&signing_key);
 
     receipt.anchors = vec![ReceiptAnchor::Rfc3161 {
+        tsa_url: "https://freetsa.org/tsr".to_string(),
         timestamp: "2026-01-04T21:57:43Z".to_string(),
-        token_der: format!("base64:{}", FREETSA_TOKEN),
+        token_der: format!("base64:{FREETSA_TOKEN}"),
     }];
 
     let result = verify_receipt(&receipt, &verifying_key.to_bytes()).unwrap();
@@ -710,12 +711,13 @@ fn test_receipt_with_rfc3161_anchor_wrong_hash() {
 #[cfg(feature = "rfc3161-verify")]
 #[test]
 fn test_receipt_with_rfc3161_anchor_malformed() {
-    use atl_core::{ReceiptAnchor, verify_receipt};
+    use atl_core::{verify_receipt, ReceiptAnchor};
 
     let (signing_key, verifying_key) = generate_test_keypair();
     let mut receipt = create_test_receipt(&signing_key);
 
     receipt.anchors = vec![ReceiptAnchor::Rfc3161 {
+        tsa_url: "https://freetsa.org/tsr".to_string(),
         timestamp: "2026-01-04T21:57:43Z".to_string(),
         token_der: "base64:INVALID_DER_TOKEN".to_string(),
     }];
@@ -734,12 +736,13 @@ fn test_receipt_with_rfc3161_anchor_malformed() {
 #[cfg(not(feature = "rfc3161-verify"))]
 #[test]
 fn test_receipt_with_rfc3161_anchor_feature_disabled() {
-    use atl_core::{ReceiptAnchor, verify_receipt};
+    use atl_core::{verify_receipt, ReceiptAnchor};
 
     let (signing_key, verifying_key) = generate_test_keypair();
     let mut receipt = create_test_receipt(&signing_key);
 
     receipt.anchors = vec![ReceiptAnchor::Rfc3161 {
+        tsa_url: "https://freetsa.org/tsr".to_string(),
         timestamp: "2026-01-04T21:57:43Z".to_string(),
         token_der: "base64:AAAA".to_string(),
     }];

@@ -4,10 +4,10 @@
 //! It validates that OTS proofs match the expected checkpoint root hash
 //! and contain Bitcoin attestations.
 
-use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 
-use crate::core::ots::{BitcoinAttestation, OtsError, extract_bitcoin_attestations};
+use crate::core::ots::{extract_bitcoin_attestations, BitcoinAttestation, OtsError};
 use crate::error::AtlError;
 
 /// Result of OTS anchor verification

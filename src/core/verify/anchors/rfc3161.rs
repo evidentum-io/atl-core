@@ -12,8 +12,8 @@
 
 use cryptographic_message_syntax::asn1::rfc3161::TstInfo;
 
-use super::super::AnchorVerificationResult;
 use super::super::iso8601::{is_leap_year, parse_iso8601_to_nanos};
+use super::super::AnchorVerificationResult;
 use crate::error::{AtlError, AtlResult};
 
 /// Maximum allowed size for timestamp token (64KB)
@@ -71,8 +71,8 @@ pub struct Rfc3161VerifyResult {
 /// - CMS `SignedData` parsing fails
 /// - `TSTInfo` decoding fails
 pub fn parse_rfc3161_token(token_der: &str) -> AtlResult<ParsedTimestampToken> {
-    use base64::Engine;
     use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
     use cryptographic_message_syntax::SignedData;
 
     let token_b64 = token_der

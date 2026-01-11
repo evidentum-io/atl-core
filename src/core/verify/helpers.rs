@@ -3,9 +3,9 @@
 //! This module contains internal verification helper functions
 //! that support the main verification logic in `ReceiptVerifier`.
 
-use crate::core::checkpoint::{Checkpoint, CheckpointVerifier, parse_hash, parse_signature};
+use crate::core::checkpoint::{parse_hash, parse_signature, Checkpoint, CheckpointVerifier};
 use crate::core::jcs::canonicalize_and_hash;
-use crate::core::merkle::{InclusionProof, compute_leaf_hash, verify_inclusion};
+use crate::core::merkle::{compute_leaf_hash, verify_inclusion, InclusionProof};
 use crate::core::receipt::ReceiptAnchor;
 
 use super::{AnchorVerificationResult, VerificationError};
@@ -104,7 +104,7 @@ pub fn verify_checkpoint_signature(
 /// Verifies RFC 3161 timestamp tokens and Bitcoin OTS anchors cryptographically.
 pub fn verify_anchor(anchor: &ReceiptAnchor, expected_root: &[u8; 32]) -> AnchorVerificationResult {
     match anchor {
-        ReceiptAnchor::Rfc3161 { timestamp, token_der } => {
+        ReceiptAnchor::Rfc3161 { tsa_url: _, timestamp, token_der } => {
             verify_rfc3161_anchor_impl(timestamp, token_der, expected_root)
         }
         ReceiptAnchor::BitcoinOts { timestamp, ots_proof, .. } => {

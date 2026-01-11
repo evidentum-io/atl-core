@@ -3,7 +3,7 @@
 //! Tests for leaf hash, node hash, and root computation.
 
 use crate::core::merkle::crypto::{LEAF_PREFIX, NODE_PREFIX};
-use crate::core::merkle::{Hash, Leaf, compute_leaf_hash, compute_root, hash_children};
+use crate::core::merkle::{compute_leaf_hash, compute_root, hash_children, Hash, Leaf};
 use sha2::{Digest, Sha256};
 
 // Test constants

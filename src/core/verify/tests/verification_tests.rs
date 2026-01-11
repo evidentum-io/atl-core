@@ -5,11 +5,11 @@ use crate::core::checkpoint::{Checkpoint, CheckpointJson, CheckpointVerifier};
 use crate::core::jcs::canonicalize_and_hash;
 use crate::core::merkle::compute_leaf_hash;
 use crate::core::receipt::{
-    Receipt, ReceiptAnchor, ReceiptEntry, ReceiptProof, format_hash, format_signature,
+    format_hash, format_signature, Receipt, ReceiptAnchor, ReceiptEntry, ReceiptProof,
 };
 use crate::core::verify::{
-    AnchorVerificationResult, ReceiptVerifier, VerificationError, VerificationResult,
-    VerifyOptions, verify_inclusion_only, verify_receipt, verify_receipt_json,
+    verify_inclusion_only, verify_receipt, verify_receipt_json, AnchorVerificationResult,
+    ReceiptVerifier, VerificationError, VerificationResult, VerifyOptions,
 };
 use ed25519_dalek::{Signer, SigningKey};
 use serde_json::json;
@@ -290,6 +290,7 @@ fn test_reconstruct_leaf_hash_invalid_format() {
 #[test]
 fn test_verify_anchor_rfc3161() {
     let anchor = ReceiptAnchor::Rfc3161 {
+        tsa_url: "https://freetsa.org/tsr".to_string(),
         timestamp: "2026-01-01T00:00:00Z".to_string(),
         token_der: "base64:token".to_string(),
     };
@@ -317,8 +318,10 @@ fn test_verify_anchor_rfc3161() {
 #[test]
 fn test_verify_anchor_bitcoin() {
     let anchor = ReceiptAnchor::BitcoinOts {
-        bitcoin_block_height: 700_000,
         timestamp: "2024-01-01T00:00:00Z".to_string(),
+        bitcoin_block_height: 700_000,
+        bitcoin_block_time: "2024-01-01T12:00:00Z".to_string(),
+        tree_size: 100,
         ots_proof: "base64:proof".to_string(),
     };
     let root_hash = [0u8; 32];

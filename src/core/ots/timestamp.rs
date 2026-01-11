@@ -289,7 +289,7 @@ mod tests {
         // First branch should have 0xff prefix
         assert_eq!(buf[0], 0xff);
         // First branch attestation marker
-        assert!(buf.iter().any(|&b| b == 0x00));
+        assert!(buf.contains(&0x00));
     }
 
     #[test]

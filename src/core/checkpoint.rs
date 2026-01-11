@@ -540,8 +540,8 @@ pub fn parse_hash(s: &str) -> AtlResult<[u8; 32]> {
 /// ```
 #[must_use]
 pub fn format_signature(sig: &[u8; 64]) -> String {
-    use base64::Engine;
     use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
     format!("base64:{}", STANDARD.encode(sig))
 }
 
@@ -554,8 +554,8 @@ pub fn format_signature(sig: &[u8; 64]) -> String {
 /// - Invalid base64 encoding
 /// - Wrong length (not 64 bytes)
 pub fn parse_signature(s: &str) -> AtlResult<[u8; 64]> {
-    use base64::Engine;
     use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
 
     let b64_str = s
         .strip_prefix("base64:")

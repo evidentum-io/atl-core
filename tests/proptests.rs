@@ -4,8 +4,8 @@
 
 use atl_core::core::jcs::{canonicalize, canonicalize_and_hash};
 use atl_core::core::merkle::{
-    ConsistencyProof, Hash, compute_leaf_hash, compute_root, generate_consistency_proof,
-    generate_inclusion_proof, verify_consistency, verify_inclusion,
+    compute_leaf_hash, compute_root, generate_consistency_proof, generate_inclusion_proof,
+    verify_consistency, verify_inclusion, ConsistencyProof, Hash,
 };
 use proptest::prelude::*;
 

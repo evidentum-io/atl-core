@@ -3,11 +3,11 @@
 //! Tests for detecting malicious or crafted inputs that attempt to exploit
 //! vulnerabilities in proof verification.
 
-use crate::AtlError;
 use crate::core::merkle::consistency::{
-    ConsistencyProof, generate_consistency_proof, verify_consistency,
+    generate_consistency_proof, verify_consistency, ConsistencyProof,
 };
-use crate::core::merkle::{Hash, compute_root};
+use crate::core::merkle::{compute_root, Hash};
+use crate::AtlError;
 
 #[test]
 fn test_adversarial_arbitrary_hashes_rejected() {

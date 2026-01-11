@@ -2,12 +2,12 @@
 //!
 //! Tests for generating and verifying inclusion proofs.
 
-use crate::AtlError;
 use crate::core::merkle::helpers::{is_power_of_two, largest_power_of_2_less_than};
 use crate::core::merkle::inclusion::{
-    InclusionProof, generate_inclusion_proof, use_constant_time_eq, verify_inclusion,
+    generate_inclusion_proof, use_constant_time_eq, verify_inclusion, InclusionProof,
 };
-use crate::core::merkle::{Hash, TreeHead, compute_root};
+use crate::core::merkle::{compute_root, Hash, TreeHead};
+use crate::AtlError;
 
 // Test constants
 const ZERO_HASH: Hash = [0u8; 32];
@@ -31,7 +31,11 @@ fn test_largest_power_of_2() {
 fn test_inclusion_proof_single_leaf() {
     let leaves = [ZERO_HASH];
     let get_node = |level: u32, index: u64| -> Option<Hash> {
-        if level == 0 && index == 0 { Some(leaves[0]) } else { None }
+        if level == 0 && index == 0 {
+            Some(leaves[0])
+        } else {
+            None
+        }
     };
 
     let proof = generate_inclusion_proof(0, 1, get_node).unwrap();

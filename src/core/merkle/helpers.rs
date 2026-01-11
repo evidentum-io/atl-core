@@ -4,7 +4,7 @@
 //! Merkle tree implementations.
 
 use crate::{
-    core::merkle::crypto::{Hash, hash_children},
+    core::merkle::crypto::{hash_children, Hash},
     error::AtlError,
 };
 
@@ -40,7 +40,11 @@ pub const fn largest_power_of_2_less_than(n: u64) -> u64 {
     let power = 1u64 << (bits - 1);
 
     // If n is exactly a power of 2, we need the next smaller power
-    if power == n { power >> 1 } else { power }
+    if power == n {
+        power >> 1
+    } else {
+        power
+    }
 }
 
 /// Check if n is a power of two (and n > 0)

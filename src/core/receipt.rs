@@ -154,6 +154,9 @@ pub enum ReceiptAnchor {
     /// RFC 3161 Time-Stamp Token
     #[serde(rename = "rfc3161")]
     Rfc3161 {
+        /// TSA URL that issued the timestamp
+        tsa_url: String,
+
         /// ISO 8601 timestamp from TSA
         timestamp: String,
 
@@ -167,11 +170,17 @@ pub enum ReceiptAnchor {
         /// ISO 8601 timestamp
         timestamp: String,
 
-        /// Raw OTS proof file ("base64:...")
-        ots_proof: String,
-
         /// Bitcoin block height
         bitcoin_block_height: u64,
+
+        /// ISO 8601 timestamp of Bitcoin block
+        bitcoin_block_time: String,
+
+        /// Tree size at the time of anchoring
+        tree_size: u64,
+
+        /// Raw OTS proof file ("base64:...")
+        ots_proof: String,
     },
 }
 
@@ -377,8 +386,8 @@ fn parse_hash_string(s: &str) -> AtlResult<Hash> {
 /// assert_eq!(parsed, sig);
 /// ```
 pub fn parse_base64_signature(s: &str) -> AtlResult<[u8; 64]> {
-    use base64::Engine;
     use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
 
     let b64_str = s
         .strip_prefix("base64:")
@@ -425,8 +434,8 @@ pub fn format_hash(hash: &Hash) -> String {
 /// ```
 #[must_use]
 pub fn format_signature(sig: &[u8; 64]) -> String {
-    use base64::Engine;
     use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
     format!("base64:{}", STANDARD.encode(sig))
 }
 
@@ -574,8 +583,8 @@ mod tests {
 
     #[test]
     fn test_parse_signature() {
-        use base64::Engine;
         use base64::engine::general_purpose::STANDARD;
+        use base64::Engine;
 
         let sig = [0xcd; 64];
         let formatted = format!("base64:{}", STANDARD.encode(sig));
@@ -683,6 +692,7 @@ mod tests {
             "anchors": [
                 {
                     "type": "rfc3161",
+                    "tsa_url": "https://freetsa.org/tsr",
                     "timestamp": "2024-01-01T00:00:00Z",
                     "token_der": "base64:AAAA"
                 }

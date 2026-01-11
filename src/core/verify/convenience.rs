@@ -4,7 +4,7 @@
 
 use crate::core::checkpoint::CheckpointVerifier;
 use crate::core::jcs::canonicalize_and_hash;
-use crate::core::merkle::{InclusionProof, compute_leaf_hash, verify_inclusion};
+use crate::core::merkle::{compute_leaf_hash, verify_inclusion, InclusionProof};
 use crate::core::receipt::Receipt;
 use crate::error::AtlResult;
 

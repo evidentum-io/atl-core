@@ -5,7 +5,7 @@
 
 use std::io::{Read, Write};
 
-use super::error::{MAX_URI_LEN, OtsError};
+use super::error::{OtsError, MAX_URI_LEN};
 use super::ser::{Deserializer, Serializer};
 
 /// Size of attestation type tag in bytes

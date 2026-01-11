@@ -128,6 +128,7 @@ mod rfc3161_feature_disabled_tests {
     #[test]
     fn test_rfc3161_feature_disabled() {
         let anchor = ReceiptAnchor::Rfc3161 {
+            tsa_url: "https://freetsa.org/tsr".to_string(),
             timestamp: "2024-01-01T00:00:00Z".to_string(),
             token_der: "base64:AAAA".to_string(),
         };

@@ -334,10 +334,8 @@ mod tests {
         assert!(AtlError::SignatureInvalid.is_verification_failure());
         assert!(AtlError::InclusionProofInvalid.is_verification_failure());
         assert!(AtlError::ConsistencyProofInvalid.is_verification_failure());
-        assert!(
-            AtlError::OriginMismatch { expected: "a".into(), actual: "b".into() }
-                .is_verification_failure()
-        );
+        assert!(AtlError::OriginMismatch { expected: "a".into(), actual: "b".into() }
+            .is_verification_failure());
 
         assert!(!AtlError::InvalidHash("x".into()).is_verification_failure());
         assert!(
@@ -370,16 +368,12 @@ mod tests {
         assert!(
             AtlError::InvalidTreeSize { size: 0, reason: "tree cannot be empty" }.is_proof_error()
         );
-        assert!(
-            AtlError::InvalidConsistencyBounds { from_size: 100, to_size: 50 }.is_proof_error()
-        );
+        assert!(AtlError::InvalidConsistencyBounds { from_size: 100, to_size: 50 }.is_proof_error());
         assert!(
             AtlError::ArithmeticOverflow { operation: "proof path calculation" }.is_proof_error()
         );
-        assert!(
-            AtlError::InvalidProofStructure { reason: "path length mismatch".into() }
-                .is_proof_error()
-        );
+        assert!(AtlError::InvalidProofStructure { reason: "path length mismatch".into() }
+            .is_proof_error());
 
         assert!(!AtlError::InvalidHash("x".into()).is_proof_error());
         assert!(!AtlError::SignatureInvalid.is_proof_error());
@@ -398,8 +392,8 @@ mod tests {
 
     #[test]
     fn test_base64_error_conversion() {
-        use base64::Engine;
         use base64::engine::general_purpose::STANDARD;
+        use base64::Engine;
 
         let result = STANDARD.decode("invalid base64!!!");
         assert!(result.is_err());
@@ -533,13 +527,11 @@ mod tests {
 
     #[test]
     fn test_rfc3161_error_classification() {
-        assert!(
-            AtlError::Rfc3161HashMismatch {
-                token_hash: String::new(),
-                expected_hash: String::new(),
-            }
-            .is_verification_failure()
-        );
+        assert!(AtlError::Rfc3161HashMismatch {
+            token_hash: String::new(),
+            expected_hash: String::new(),
+        }
+        .is_verification_failure());
 
         assert!(AtlError::Rfc3161ParseError(String::new()).is_format_error());
         assert!(AtlError::Rfc3161UnsupportedAlgorithm(String::new()).is_format_error());
