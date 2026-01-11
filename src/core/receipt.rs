@@ -306,7 +306,7 @@ impl Receipt {
 
     /// Check if receipt has anchors
     #[must_use]
-    pub fn has_anchors(&self) -> bool {
+    pub const fn has_anchors(&self) -> bool {
         !self.anchors.is_empty()
     }
 
