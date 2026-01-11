@@ -5,11 +5,11 @@ use crate::core::checkpoint::{Checkpoint, CheckpointJson, CheckpointVerifier};
 use crate::core::jcs::canonicalize_and_hash;
 use crate::core::merkle::compute_leaf_hash;
 use crate::core::receipt::{
-    Receipt, ReceiptAnchor, ReceiptEntry, ReceiptProof, format_hash, format_signature,
+    format_hash, format_signature, Receipt, ReceiptAnchor, ReceiptEntry, ReceiptProof,
 };
 use crate::core::verify::{
-    AnchorVerificationResult, ReceiptVerifier, VerificationError, VerificationResult,
-    VerifyOptions, verify_inclusion_only, verify_receipt, verify_receipt_json,
+    verify_inclusion_only, verify_receipt, verify_receipt_json, AnchorVerificationResult,
+    ReceiptVerifier, VerificationError, VerificationResult, VerifyOptions,
 };
 use ed25519_dalek::{Signer, SigningKey};
 use serde_json::json;

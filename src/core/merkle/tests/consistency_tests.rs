@@ -2,11 +2,11 @@
 //!
 //! Tests for generating and verifying consistency proofs.
 
-use crate::AtlError;
 use crate::core::merkle::consistency::{
-    ConsistencyProof, generate_consistency_proof, verify_consistency,
+    generate_consistency_proof, verify_consistency, ConsistencyProof,
 };
-use crate::core::merkle::{Hash, compute_root};
+use crate::core::merkle::{compute_root, Hash};
+use crate::AtlError;
 
 // Test constants
 const ZERO_HASH: Hash = [0u8; 32];

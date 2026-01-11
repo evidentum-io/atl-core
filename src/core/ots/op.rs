@@ -5,7 +5,7 @@
 
 use std::io::{Read, Write};
 
-use super::error::{MAX_OP_LENGTH, OtsError};
+use super::error::{OtsError, MAX_OP_LENGTH};
 use super::ser::{Deserializer, Serializer};
 
 /// Cryptographic operation in an OTS proof chain
@@ -82,15 +82,15 @@ impl Op {
     pub fn execute(&self, input: &[u8]) -> Vec<u8> {
         match self {
             Self::Sha1 => {
-                use bitcoin_hashes::{Hash, sha1};
+                use bitcoin_hashes::{sha1, Hash};
                 sha1::Hash::hash(input).to_byte_array().to_vec()
             }
             Self::Sha256 => {
-                use bitcoin_hashes::{Hash, sha256};
+                use bitcoin_hashes::{sha256, Hash};
                 sha256::Hash::hash(input).to_byte_array().to_vec()
             }
             Self::Ripemd160 => {
-                use bitcoin_hashes::{Hash, ripemd160};
+                use bitcoin_hashes::{ripemd160, Hash};
                 ripemd160::Hash::hash(input).to_byte_array().to_vec()
             }
             Self::Append(data) => {

@@ -88,27 +88,27 @@ pub mod prelude;
 
 // Merkle tree types and functions
 pub use core::merkle::{
-    ConsistencyProof, Hash, InclusionProof, LEAF_PREFIX, Leaf, NODE_PREFIX, TreeHead,
     compute_leaf_hash, compute_root, generate_consistency_proof, generate_inclusion_proof,
-    hash_children, verify_consistency, verify_inclusion,
+    hash_children, verify_consistency, verify_inclusion, ConsistencyProof, Hash, InclusionProof,
+    Leaf, TreeHead, LEAF_PREFIX, NODE_PREFIX,
 };
 
 // Checkpoint types and functions
 pub use core::checkpoint::{
-    CHECKPOINT_BLOB_SIZE, CHECKPOINT_MAGIC, Checkpoint, CheckpointJson, CheckpointVerifier,
-    compute_key_id, compute_origin_id,
+    compute_key_id, compute_origin_id, Checkpoint, CheckpointJson, CheckpointVerifier,
+    CHECKPOINT_BLOB_SIZE, CHECKPOINT_MAGIC,
 };
 
 // Receipt types
 pub use core::receipt::{
-    RECEIPT_SPEC_VERSION, Receipt, ReceiptAnchor, ReceiptConsistencyProof, ReceiptEntry,
-    ReceiptProof,
+    Receipt, ReceiptAnchor, ReceiptConsistencyProof, ReceiptEntry, ReceiptProof,
+    RECEIPT_SPEC_VERSION,
 };
 
 // Verification types and functions
 pub use core::verify::{
-    AnchorVerificationResult, ReceiptVerifier, VerificationError, VerificationResult,
-    VerifyOptions, verify_receipt, verify_receipt_json,
+    verify_receipt, verify_receipt_json, AnchorVerificationResult, ReceiptVerifier,
+    VerificationError, VerificationResult, VerifyOptions,
 };
 
 // RFC 3161 timestamp verification (feature-gated)

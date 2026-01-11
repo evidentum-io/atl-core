@@ -9,7 +9,7 @@
 
 use crate::{AtlError, AtlResult};
 
-use super::crypto::{Hash, hash_children};
+use super::crypto::{hash_children, Hash};
 use super::helpers::{compute_subtree_root, largest_power_of_2_less_than};
 
 /// Merkle inclusion proof

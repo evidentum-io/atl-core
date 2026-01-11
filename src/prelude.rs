@@ -13,7 +13,7 @@ pub use crate::error::{AtlError, AtlResult};
 pub use crate::core::checkpoint::{Checkpoint, CheckpointVerifier};
 pub use crate::core::merkle::{ConsistencyProof, Hash, InclusionProof, TreeHead};
 pub use crate::core::receipt::{Receipt, ReceiptEntry, ReceiptProof};
-pub use crate::core::verify::{VerificationResult, verify_receipt};
+pub use crate::core::verify::{verify_receipt, VerificationResult};
 
 // Convenience functions
 pub use crate::core::jcs::{canonicalize, canonicalize_and_hash};

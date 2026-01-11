@@ -7,7 +7,7 @@
 
 use crate::{
     core::merkle::{
-        crypto::{Hash, hash_children},
+        crypto::{hash_children, Hash},
         helpers::{compute_subtree_root, is_power_of_two, largest_power_of_2_less_than},
     },
     error::{AtlError, AtlResult},

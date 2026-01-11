@@ -96,7 +96,11 @@ impl<R: Read> Deserializer<R> {
     /// Returns `OtsError::InvalidMagic` if the magic bytes don't match
     pub fn read_magic(&mut self) -> Result<(), OtsError> {
         let recv_magic = self.read_fixed_bytes(MAGIC.len())?;
-        if recv_magic == MAGIC { Ok(()) } else { Err(OtsError::InvalidMagic(recv_magic)) }
+        if recv_magic == MAGIC {
+            Ok(())
+        } else {
+            Err(OtsError::InvalidMagic(recv_magic))
+        }
     }
 
     /// Reads the version and checks that it matches the expected value

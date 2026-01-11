@@ -16,7 +16,7 @@ pub mod bitcoin_ots;
 pub use rfc3161::{ParsedTimestampToken, Rfc3161VerifyResult};
 
 #[cfg(feature = "bitcoin-ots")]
-pub use bitcoin_ots::{OtsVerifyResult, verify_ots_anchor_impl};
+pub use bitcoin_ots::{verify_ots_anchor_impl, OtsVerifyResult};
 
 // Re-export internal functions for testing and library use
 #[cfg(feature = "rfc3161-verify")]

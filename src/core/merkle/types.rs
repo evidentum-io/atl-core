@@ -2,7 +2,7 @@
 //!
 //! Core data structures for ATL Merkle tree implementation.
 
-use super::crypto::{Hash, compute_leaf_hash};
+use super::crypto::{compute_leaf_hash, Hash};
 
 /// Represents a leaf in the Merkle tree
 ///

@@ -3,9 +3,9 @@
 //! This module contains internal verification helper functions
 //! that support the main verification logic in `ReceiptVerifier`.
 
-use crate::core::checkpoint::{Checkpoint, CheckpointVerifier, parse_hash, parse_signature};
+use crate::core::checkpoint::{parse_hash, parse_signature, Checkpoint, CheckpointVerifier};
 use crate::core::jcs::canonicalize_and_hash;
-use crate::core::merkle::{InclusionProof, compute_leaf_hash, verify_inclusion};
+use crate::core::merkle::{compute_leaf_hash, verify_inclusion, InclusionProof};
 use crate::core::receipt::ReceiptAnchor;
 
 use super::{AnchorVerificationResult, VerificationError};
