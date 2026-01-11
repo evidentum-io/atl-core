@@ -86,7 +86,7 @@ impl BitcoinAttestation {
     /// assert_eq!(att.path_len(), 2);
     /// ```
     #[must_use]
-    pub fn path_len(&self) -> usize {
+    pub const fn path_len(&self) -> usize {
         self.merkle_path.len()
     }
 }

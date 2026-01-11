@@ -138,6 +138,47 @@ impl Timestamp {
         Ok(Self { start_digest, first_step })
     }
 
+    /// Deserialize a timestamp from raw calendar response bytes
+    ///
+    /// Calendar servers return raw operations without the OTS file header.
+    /// This method parses those operations into a Timestamp structure.
+    ///
+    /// # Arguments
+    ///
+    /// * `start_digest` - The original document hash submitted to calendar
+    /// * `response` - Raw calendar response bytes (operations only)
+    ///
+    /// # Returns
+    ///
+    /// Parsed `Timestamp` structure containing the proof chain from the
+    /// start digest to one or more attestations.
+    ///
+    /// # Errors
+    ///
+    /// * [`OtsError::InvalidOperation`] - Unrecognized operation tag
+    /// * [`OtsError::RecursionLimitExceeded`] - Proof tree too deep
+    /// * [`OtsError::IoError`] - I/O error during parsing
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// use atl_core::ots::Timestamp;
+    ///
+    /// let hash = [0xaa; 32];
+    /// let calendar_response = /* bytes from calendar server */;
+    /// let timestamp = Timestamp::from_calendar_response(
+    ///     hash.to_vec(),
+    ///     &calendar_response
+    /// )?;
+    /// ```
+    pub fn from_calendar_response(
+        start_digest: Vec<u8>,
+        response: &[u8],
+    ) -> Result<Self, OtsError> {
+        let mut deser = Deserializer::new(response);
+        Self::deserialize(&mut deser, start_digest)
+    }
+
     /// Serializes this timestamp to binary format
     ///
     /// # Arguments
@@ -549,5 +590,56 @@ mod tests {
         let result = Timestamp::deserialize(&mut deser, start_digest).unwrap();
 
         assert_eq!(result, timestamp);
+    }
+
+    #[test]
+    fn test_from_calendar_response_simple() {
+        // Build a simple calendar response: Prepend -> SHA256 -> PendingAttestation
+        let hash = [0xaa; 32];
+
+        // Build response manually using Serializer
+        let mut response_buf = Vec::new();
+        let mut ser = Serializer::new(&mut response_buf);
+
+        // Write Prepend operation with data
+        ser.write_byte(0xf1).unwrap(); // Prepend tag
+        ser.write_bytes(&[0xde, 0xad, 0xbe, 0xef]).unwrap(); // Prepend data
+
+        // Write SHA256 operation
+        ser.write_byte(0x08).unwrap(); // SHA256 tag
+
+        // Write PendingAttestation
+        let att = Attestation::Pending { uri: "https://calendar.example.com".to_string() };
+        att.serialize(&mut ser).unwrap();
+
+        // Parse response
+        let result = Timestamp::from_calendar_response(hash.to_vec(), &response_buf);
+        assert!(result.is_ok(), "Failed to parse calendar response: {:?}", result.err());
+
+        let timestamp = result.unwrap();
+        assert_eq!(timestamp.start_digest, hash);
+
+        // Verify structure: first step should be Prepend
+        if let StepData::Op(Op::Prepend(data)) = &timestamp.first_step.data {
+            assert_eq!(data, &[0xde, 0xad, 0xbe, 0xef]);
+        } else {
+            panic!("Expected Prepend operation, got {:?}", timestamp.first_step.data);
+        }
+    }
+
+    #[test]
+    fn test_from_calendar_response_empty() {
+        let hash = [0xaa; 32];
+        let result = Timestamp::from_calendar_response(hash.to_vec(), &[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_calendar_response_invalid_tag() {
+        let hash = [0xaa; 32];
+        let response = [0xfe]; // Invalid tag
+        let result = Timestamp::from_calendar_response(hash.to_vec(), &response);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), OtsError::InvalidOperation(0xfe)));
     }
 }

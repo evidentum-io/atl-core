@@ -24,6 +24,44 @@ Binary `.ots` files for testing OpenTimestamps parsing and verification.
   - Deep operation chains (SHA256, Prepend, Append)
   - Multiple hash operations and forks
 
+## Calendar Response Fixtures
+
+These fixtures contain raw calendar server responses (without OTS magic header).
+Used to test `DetachedTimestampFile::from_calendar_response()`.
+
+### Files
+
+- `calendar-response-1.bin` - Raw response from OpenTimestamps calendar
+- `calendar-response-1.hash` - SHA256 hash that was submitted (hex-encoded)
+
+### Regenerating Fixtures
+
+```bash
+# Create test hash
+echo -n "your test data" | shasum -a 256 | cut -d' ' -f1 > hash.hex
+xxd -r -p hash.hex > hash.bin
+
+# Submit to calendar
+curl -X POST \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-binary @hash.bin \
+  https://a.pool.opentimestamps.org/digest \
+  -o calendar-response-1.bin
+
+# Save hash
+mv hash.hex calendar-response-1.hash
+```
+
+### Expected Format
+
+Calendar responses start with operations (NOT magic header):
+- `f0 xx` - Prepend operation
+- `f1 xx` - Append operation
+- `08` - SHA256 operation
+- `00` + `83 df e3...` - Pending attestation
+
+Full `.ots` files start with magic: `00 4f 70 65 6e 54 69 6d 65 73 74 61 6d 70 73...`
+
 ## Format Specification
 
 All `.ots` files follow the OpenTimestamps proof format:
