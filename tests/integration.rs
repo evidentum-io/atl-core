@@ -691,8 +691,9 @@ fn test_receipt_with_rfc3161_anchor_wrong_hash() {
     let mut receipt = create_test_receipt(&signing_key);
 
     receipt.anchors = vec![ReceiptAnchor::Rfc3161 {
+        tsa_url: "https://freetsa.org/tsr".to_string(),
         timestamp: "2026-01-04T21:57:43Z".to_string(),
-        token_der: format!("base64:{}", FREETSA_TOKEN),
+        token_der: format!("base64:{FREETSA_TOKEN}"),
     }];
 
     let result = verify_receipt(&receipt, &verifying_key.to_bytes()).unwrap();
@@ -716,6 +717,7 @@ fn test_receipt_with_rfc3161_anchor_malformed() {
     let mut receipt = create_test_receipt(&signing_key);
 
     receipt.anchors = vec![ReceiptAnchor::Rfc3161 {
+        tsa_url: "https://freetsa.org/tsr".to_string(),
         timestamp: "2026-01-04T21:57:43Z".to_string(),
         token_der: "base64:INVALID_DER_TOKEN".to_string(),
     }];
@@ -740,6 +742,7 @@ fn test_receipt_with_rfc3161_anchor_feature_disabled() {
     let mut receipt = create_test_receipt(&signing_key);
 
     receipt.anchors = vec![ReceiptAnchor::Rfc3161 {
+        tsa_url: "https://freetsa.org/tsr".to_string(),
         timestamp: "2026-01-04T21:57:43Z".to_string(),
         token_der: "base64:AAAA".to_string(),
     }];
