@@ -91,6 +91,9 @@ pub enum OtsError {
 
     /// Builder error: end fork called without matching fork
     UnmatchedEndFork,
+
+    /// No pending attestation found in timestamp (already upgraded)
+    NoPendingAttestation,
 }
 
 impl std::fmt::Display for OtsError {
@@ -152,6 +155,9 @@ impl std::fmt::Display for OtsError {
             }
             Self::UnmatchedEndFork => {
                 write!(f, "end_fork() called without matching fork()")
+            }
+            Self::NoPendingAttestation => {
+                write!(f, "no pending attestation found in timestamp (already upgraded)")
             }
         }
     }
@@ -251,6 +257,7 @@ mod tests {
             OtsError::UnclosedFork,
             OtsError::EmptyFork,
             OtsError::UnmatchedEndFork,
+            OtsError::NoPendingAttestation,
         ];
 
         for err in errors {
