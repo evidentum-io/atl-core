@@ -6,8 +6,9 @@
 use std::fmt;
 use std::io::{Read, Write};
 
+use super::attestation::Attestation;
 use super::error::OtsError;
-use super::timestamp::Timestamp;
+use super::timestamp::{Step, StepData, Timestamp};
 use super::{MAGIC, VERSION};
 
 /// Cryptographic digest algorithms supported by `OpenTimestamps`
@@ -516,6 +517,71 @@ impl DetachedTimestampFile {
         let timestamp = Timestamp::from_calendar_response(hash, calendar_response)?;
 
         Ok(Self { digest_type, timestamp })
+    }
+
+    /// Upgrade a pending timestamp with calendar response
+    ///
+    /// Finds the first pending attestation in the timestamp tree, parses the
+    /// calendar response as a new timestamp, and replaces the pending attestation
+    /// with the completed proof chain.
+    ///
+    /// # Arguments
+    ///
+    /// * `original` - The original timestamp file with pending attestation
+    /// * `calendar_response` - Raw bytes from calendar server upgrade endpoint
+    ///
+    /// # Returns
+    ///
+    /// New timestamp file with the pending attestation replaced by Bitcoin attestation.
+    ///
+    /// # Errors
+    ///
+    /// * [`OtsError::InvalidOperation`] - No pending attestation found or invalid response
+    /// * [`OtsError::RecursionLimitExceeded`] - Response too deeply nested
+    /// * [`OtsError::IoError`] - I/O error during parsing
+    pub fn upgrade_from_calendar_response(
+        original: &Self,
+        calendar_response: &[u8],
+    ) -> Result<Self, OtsError> {
+        let mut upgraded = original.clone();
+
+        // Find and upgrade pending attestation
+        let found = Self::upgrade_step(&mut upgraded.timestamp.first_step, calendar_response)?;
+
+        if !found {
+            return Err(OtsError::NoPendingAttestation);
+        }
+
+        Ok(upgraded)
+    }
+
+    /// Recursively find and upgrade pending attestation in a step
+    fn upgrade_step(step: &mut Step, calendar_response: &[u8]) -> Result<bool, OtsError> {
+        match &step.data {
+            StepData::Attestation(Attestation::Pending { .. }) => {
+                // Found pending attestation - parse calendar response
+                // The commitment is step.output - this is what calendar uses as start_digest
+                let new_timestamp =
+                    Timestamp::from_calendar_response(step.output.clone(), calendar_response)?;
+
+                // Replace this step with the new timestamp chain
+                step.data = new_timestamp.first_step.data.clone();
+                step.next.clone_from(&new_timestamp.first_step.next);
+
+                Ok(true)
+            }
+            StepData::Fork | StepData::Op(_) => {
+                // Recurse into children
+                for child in &mut step.next {
+                    if Self::upgrade_step(child, calendar_response)? {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            }
+            // Already complete or unknown attestation
+            StepData::Attestation(_) => Ok(false),
+        }
     }
 }
 
