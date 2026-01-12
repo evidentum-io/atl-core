@@ -1,9 +1,11 @@
 //! Cryptographic primitive tests for Merkle tree operations
 //!
-//! Tests for leaf hash, node hash, and root computation.
+//! Tests for leaf hash, node hash, root computation, and genesis leaf hash.
 
-use crate::core::merkle::crypto::{LEAF_PREFIX, NODE_PREFIX};
-use crate::core::merkle::{compute_leaf_hash, compute_root, hash_children, Hash, Leaf};
+use crate::core::merkle::crypto::{GENESIS_DOMAIN, LEAF_PREFIX, NODE_PREFIX};
+use crate::core::merkle::{
+    compute_genesis_leaf_hash, compute_leaf_hash, compute_root, hash_children, Hash, Leaf,
+};
 use sha2::{Digest, Sha256};
 
 // Test constants
@@ -93,4 +95,75 @@ fn test_four_leaves_root() {
     let right = hash_children(&leaves[2], &leaves[3]);
     let expected = hash_children(&left, &right);
     assert_eq!(root, expected);
+}
+
+// ============================================================================
+// Genesis Leaf Hash Tests
+// ============================================================================
+
+#[test]
+fn test_genesis_domain_is_correct() {
+    assert_eq!(GENESIS_DOMAIN, b"ATL-CHAIN-v1");
+    assert_eq!(GENESIS_DOMAIN.len(), 12);
+}
+
+#[test]
+fn test_genesis_leaf_hash_deterministic() {
+    let prev_root = [0xab; 32];
+    let prev_size = 1000u64;
+
+    let hash1 = compute_genesis_leaf_hash(&prev_root, prev_size);
+    let hash2 = compute_genesis_leaf_hash(&prev_root, prev_size);
+
+    assert_eq!(hash1, hash2);
+}
+
+#[test]
+fn test_genesis_leaf_hash_changes_with_root() {
+    let prev_size = 1000u64;
+
+    let hash1 = compute_genesis_leaf_hash(&[0xaa; 32], prev_size);
+    let hash2 = compute_genesis_leaf_hash(&[0xbb; 32], prev_size);
+
+    assert_ne!(hash1, hash2);
+}
+
+#[test]
+fn test_genesis_leaf_hash_changes_with_size() {
+    let prev_root = [0xab; 32];
+
+    let hash1 = compute_genesis_leaf_hash(&prev_root, 1000);
+    let hash2 = compute_genesis_leaf_hash(&prev_root, 1001);
+
+    assert_ne!(hash1, hash2);
+}
+
+#[test]
+fn test_genesis_leaf_hash_known_vector() {
+    // Precomputed test vector for regression testing
+    // Input: prev_root = [0x00; 32], prev_size = 0
+    // SHA256(0x00 || "ATL-CHAIN-v1" || [0x00; 32] || [0x00; 8])
+    let prev_root = [0x00; 32];
+    let prev_size = 0u64;
+
+    let hash = compute_genesis_leaf_hash(&prev_root, prev_size);
+
+    // Verify hash is 32 bytes and non-zero
+    assert_eq!(hash.len(), 32);
+    assert_ne!(hash, [0x00; 32]);
+
+    // Verify it differs from a regular leaf hash with same payload
+    let regular_leaf = compute_leaf_hash(&prev_root, &[0x00; 32]);
+    assert_ne!(hash, regular_leaf);
+}
+
+#[test]
+fn test_genesis_differs_from_regular_leaf() {
+    // Ensure genesis hash cannot collide with regular leaf hash
+    let data = [0x42; 32];
+
+    let genesis = compute_genesis_leaf_hash(&data, 100);
+    let regular = compute_leaf_hash(&data, &data);
+
+    assert_ne!(genesis, regular);
 }

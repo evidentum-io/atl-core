@@ -14,6 +14,9 @@ pub const LEAF_PREFIX: u8 = 0x00;
 /// Node prefix for RFC 6962 compliance
 pub const NODE_PREFIX: u8 = 0x01;
 
+/// Domain separator for genesis leaf (tree chaining)
+pub const GENESIS_DOMAIN: &[u8] = b"ATL-CHAIN-v1";
+
 /// Compute leaf hash from payload and metadata hashes
 ///
 /// Implements ATL-specific leaf hash construction:
@@ -77,5 +80,42 @@ pub fn hash_children(left: &Hash, right: &Hash) -> Hash {
     hasher.update([NODE_PREFIX]);
     hasher.update(left);
     hasher.update(right);
+    hasher.finalize().into()
+}
+
+/// Compute genesis leaf hash for tree chaining
+///
+/// Creates a cryptographic link from a new tree to its predecessor.
+/// The genesis leaf is inserted as the first entry of the new tree.
+///
+/// # Formula
+/// ```text
+/// genesis_hash = SHA256(0x00 || "ATL-CHAIN-v1" || prev_root_hash || prev_tree_size_le)
+/// ```
+///
+/// # Arguments
+/// * `prev_root_hash` - Root hash of the closed (previous) tree
+/// * `prev_tree_size` - Number of leaves in the closed tree
+///
+/// # Returns
+/// 32-byte genesis leaf hash
+///
+/// # Example
+///
+/// ```
+/// use atl_core::compute_genesis_leaf_hash;
+///
+/// let prev_root = [0xab; 32];
+/// let prev_size = 1000u64;
+/// let genesis = compute_genesis_leaf_hash(&prev_root, prev_size);
+/// assert_eq!(genesis.len(), 32);
+/// ```
+#[must_use]
+pub fn compute_genesis_leaf_hash(prev_root_hash: &Hash, prev_tree_size: u64) -> Hash {
+    let mut hasher = Sha256::new();
+    hasher.update([LEAF_PREFIX]);
+    hasher.update(GENESIS_DOMAIN);
+    hasher.update(prev_root_hash);
+    hasher.update(prev_tree_size.to_le_bytes());
     hasher.finalize().into()
 }
