@@ -88,9 +88,10 @@ pub mod prelude;
 
 // Merkle tree types and functions
 pub use core::merkle::{
-    compute_leaf_hash, compute_root, generate_consistency_proof, generate_inclusion_proof,
-    hash_children, verify_consistency, verify_inclusion, ConsistencyProof, Hash, InclusionProof,
-    Leaf, TreeHead, LEAF_PREFIX, NODE_PREFIX,
+    compute_genesis_leaf_hash, compute_leaf_hash, compute_root, generate_consistency_proof,
+    generate_inclusion_proof, hash_children, verify_consistency, verify_inclusion,
+    ConsistencyProof, Hash, InclusionProof, Leaf, TreeHead, GENESIS_DOMAIN, LEAF_PREFIX,
+    NODE_PREFIX,
 };
 
 // Checkpoint types and functions

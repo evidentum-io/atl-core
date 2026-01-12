@@ -4,7 +4,10 @@
 //! computation and verification per RFC 6962.
 
 mod crypto;
-pub use crypto::{compute_leaf_hash, hash_children, Hash, LEAF_PREFIX, NODE_PREFIX};
+pub use crypto::{
+    compute_genesis_leaf_hash, compute_leaf_hash, hash_children, Hash, GENESIS_DOMAIN, LEAF_PREFIX,
+    NODE_PREFIX,
+};
 
 mod types;
 pub use types::{Leaf, TreeHead};
