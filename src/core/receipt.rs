@@ -65,6 +65,10 @@ use uuid::Uuid;
 // ========== Constants ==========
 
 /// Current receipt specification version
+///
+/// Version 2.0.0 is the only supported version:
+/// - Mandatory `super_proof` for global chain consistency
+/// - Mandatory `target` and `target_hash` in anchors
 pub const RECEIPT_SPEC_VERSION: &str = "2.0.0";
 
 /// Anchor target: Data Tree Root (for RFC 3161)

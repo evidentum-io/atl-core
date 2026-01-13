@@ -1,6 +1,6 @@
 //! # atl-core
 //!
-//! Pure cryptographic library for ATL Protocol v1 (Anchored Transparency Log).
+//! Pure cryptographic library for ATL Protocol v2.0 (Anchored Transparency Log).
 //!
 //! atl-core provides cryptographic primitives for **verifying** transparency log
 //! receipts. It contains NO I/O operations.
@@ -131,7 +131,20 @@ pub use core::ots;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// ATL Protocol version implemented
-pub const PROTOCOL_VERSION: &str = "1.0.0";
+///
+/// Version 2.0.0 introduces:
+/// - Super-Tree architecture for global chain consistency
+/// - Two-tier anchoring (TSA -> Data Tree Root, OTS -> Super Root)
+/// - Cross-receipt verification without server access
+/// - Mandatory `super_proof` field in receipts
+/// - Mandatory `target` and `target_hash` fields in anchors
+///
+pub const PROTOCOL_VERSION: &str = "2.0.0";
 
 /// Receipt specification version
-pub const RECEIPT_VERSION: &str = "1.0.0";
+///
+/// Version 2.0.0:
+/// - Mandatory `super_proof` field
+/// - Optional `upgrade_url` field
+/// - Mandatory `target` and `target_hash` fields in anchors
+pub const RECEIPT_VERSION: &str = "2.0.0";
