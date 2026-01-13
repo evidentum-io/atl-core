@@ -277,12 +277,14 @@ pub fn verify_rfc3161_anchor_impl(
 
 /// Verify Bitcoin OTS anchor with MANDATORY target validation
 ///
-/// Per ATL Protocol v2.0:
+/// Per ATL Protocol v2.0 Section 5.5.2:
 /// 1. Verify that `anchor.target` equals `"super_root"` (REQUIRED)
 /// 2. Verify that `anchor.target_hash` equals `super_proof.super_root` (REQUIRED)
-/// 3. Verify OTS proof cryptographically
+/// 3. Decode `ots_proof` (`OpenTimestamps` binary format)
+/// 4. Verify the OTS proof chain from `target_hash` to the Bitcoin block
 ///
 /// NO FALLBACKS: Missing target or `target_hash` = ERROR.
+/// OTS anchors MUST target `"super_root"` (not `"data_tree_root"`).
 fn verify_bitcoin_ots_anchor(
     target: &str,
     target_hash: &str,
@@ -525,5 +527,92 @@ mod rfc3161_target_tests {
         assert!(!result.is_valid);
         assert!(result.error.is_some());
         assert!(result.error.unwrap().contains("target_hash mismatch"));
+    }
+
+    #[test]
+    fn test_ots_v2_correct_super_root_target() {
+        let context = make_context();
+
+        // Valid v2.0 anchor targeting super_root
+        let result = verify_bitcoin_ots_anchor(
+            "super_root",
+            &make_test_hash(0xbb), // Matches context.super_root
+            "2026-01-13T12:00:00Z",
+            "base64:...",
+            &context,
+        );
+
+        // Target validation should pass (actual OTS verification may fail)
+        if !result.is_valid {
+            let error = result.error.as_ref().unwrap();
+            assert!(!error.contains("target must be"));
+            assert!(!error.contains("target_hash mismatch"));
+        }
+    }
+
+    #[test]
+    fn test_ots_invalid_target_fails() {
+        let context = make_context();
+
+        let result = verify_bitcoin_ots_anchor(
+            "invalid_target",
+            &make_test_hash(0xbb),
+            "2026-01-13T12:00:00Z",
+            "base64:AAAA",
+            &context,
+        );
+
+        assert!(!result.is_valid);
+        assert!(result.error.is_some());
+        assert!(result.error.unwrap().contains("must be 'super_root'"));
+    }
+
+    #[test]
+    fn test_ots_invalid_target_hash_format_fails() {
+        let context = make_context();
+
+        let result = verify_bitcoin_ots_anchor(
+            "super_root",
+            "invalid", // Bad format
+            "2026-01-13T12:00:00Z",
+            "base64:AAAA",
+            &context,
+        );
+
+        assert!(!result.is_valid);
+        assert!(result.error.is_some());
+        assert!(result.error.unwrap().contains("invalid target_hash format"));
+    }
+
+    #[test]
+    fn test_ots_empty_target_fails() {
+        let context = make_context();
+
+        let result = verify_bitcoin_ots_anchor(
+            "", // Empty!
+            &make_test_hash(0xbb),
+            "2026-01-13T12:00:00Z",
+            "base64:AAAA",
+            &context,
+        );
+
+        assert!(!result.is_valid);
+        assert!(result.error.is_some());
+    }
+
+    #[test]
+    fn test_ots_empty_target_hash_fails() {
+        let context = make_context();
+
+        let result = verify_bitcoin_ots_anchor(
+            "super_root",
+            "", // Empty!
+            "2026-01-13T12:00:00Z",
+            "base64:AAAA",
+            &context,
+        );
+
+        assert!(!result.is_valid);
+        assert!(result.error.is_some());
     }
 }
