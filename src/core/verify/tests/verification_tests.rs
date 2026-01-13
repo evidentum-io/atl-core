@@ -290,6 +290,8 @@ fn test_reconstruct_leaf_hash_invalid_format() {
 #[test]
 fn test_verify_anchor_rfc3161() {
     let anchor = ReceiptAnchor::Rfc3161 {
+        target: "data_tree_root".to_string(),
+        target_hash: format!("sha256:{}", hex::encode([0u8; 32])),
         tsa_url: "https://freetsa.org/tsr".to_string(),
         timestamp: "2026-01-01T00:00:00Z".to_string(),
         token_der: "base64:token".to_string(),
@@ -318,10 +320,11 @@ fn test_verify_anchor_rfc3161() {
 #[test]
 fn test_verify_anchor_bitcoin() {
     let anchor = ReceiptAnchor::BitcoinOts {
+        target: "super_root".to_string(),
+        target_hash: format!("sha256:{}", hex::encode([0u8; 32])),
         timestamp: "2024-01-01T00:00:00Z".to_string(),
         bitcoin_block_height: 700_000,
         bitcoin_block_time: "2024-01-01T12:00:00Z".to_string(),
-        tree_size: 100,
         ots_proof: "base64:proof".to_string(),
     };
     let root_hash = [0u8; 32];

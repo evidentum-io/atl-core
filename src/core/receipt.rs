@@ -59,6 +59,12 @@ use uuid::Uuid;
 /// Current receipt specification version
 pub const RECEIPT_SPEC_VERSION: &str = "1.0.0";
 
+/// Anchor target: Data Tree Root (for RFC 3161)
+pub const ANCHOR_TARGET_DATA_TREE_ROOT: &str = "data_tree_root";
+
+/// Anchor target: Super Root (for Bitcoin OTS)
+pub const ANCHOR_TARGET_SUPER_ROOT: &str = "super_root";
+
 // ========== Core Structures ==========
 
 /// Evidence Receipt - self-contained proof of entry existence
@@ -146,27 +152,58 @@ pub struct ReceiptConsistencyProof {
 
 /// Anchor attestation in receipt
 ///
-/// External timestamp anchors provide additional tamper-evidence.
-/// These are optional and can be added after receipt generation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// External timestamp anchors provide tamper-evidence through independent
+/// third-party timestamp services. ATL Protocol v2.0 requires the `target`
+/// field to explicitly specify what the anchor is timestamping.
+///
+/// ## Two-Tier Anchoring (v2.0)
+///
+/// - **RFC 3161 (TSA)**: Anchors the Data Tree Root for immediate timestamps
+/// - **Bitcoin OTS**: Anchors the Super Root for eternal immutability + global consistency
+///
+/// ## Mandatory Fields
+///
+/// All fields are mandatory. Receipts without `target` and `target_hash` fields
+/// will fail to deserialize.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type")]
 pub enum ReceiptAnchor {
     /// RFC 3161 Time-Stamp Token
+    ///
+    /// TSA anchors MUST target the Data Tree Root.
     #[serde(rename = "rfc3161")]
     Rfc3161 {
+        /// What this anchor timestamps: MUST be `"data_tree_root"`
+        target: String,
+
+        /// Hash of the target being timestamped
+        /// Format: `"sha256:<hex>"`
+        /// MUST equal `proof.root_hash`
+        target_hash: String,
+
         /// TSA URL that issued the timestamp
         tsa_url: String,
 
         /// ISO 8601 timestamp from TSA
         timestamp: String,
 
-        /// DER-encoded `TimeStampResp` ("base64:...")
+        /// DER-encoded `TimeStampResp` (`"base64:..."`)
         token_der: String,
     },
 
     /// `OpenTimestamps` / Bitcoin anchor
+    ///
+    /// OTS anchors MUST target the Super Root.
     #[serde(rename = "bitcoin_ots")]
     BitcoinOts {
+        /// What this anchor timestamps: MUST be `"super_root"`
+        target: String,
+
+        /// Hash of the target being timestamped
+        /// Format: `"sha256:<hex>"`
+        /// MUST equal `super_proof.super_root`
+        target_hash: String,
+
         /// ISO 8601 timestamp
         timestamp: String,
 
@@ -175,9 +212,6 @@ pub enum ReceiptAnchor {
 
         /// ISO 8601 timestamp of Bitcoin block
         bitcoin_block_time: String,
-
-        /// Tree size at the time of anchoring
-        tree_size: u64,
 
         /// Raw OTS proof file ("base64:...")
         ots_proof: String,
@@ -235,6 +269,55 @@ pub struct SuperProof {
     /// RFC 9162 consistency proof from Super-Tree size 1 to current size
     /// Format: list of "sha256:<hex>"
     pub consistency_to_origin: Vec<String>,
+}
+
+// ========== ReceiptAnchor Implementation ==========
+
+impl ReceiptAnchor {
+    /// Get the anchor type as string
+    #[must_use]
+    pub const fn anchor_type(&self) -> &'static str {
+        match self {
+            Self::Rfc3161 { .. } => "rfc3161",
+            Self::BitcoinOts { .. } => "bitcoin_ots",
+        }
+    }
+
+    /// Get the target type (mandatory field)
+    #[must_use]
+    pub fn target(&self) -> &str {
+        match self {
+            Self::Rfc3161 { target, .. } | Self::BitcoinOts { target, .. } => target,
+        }
+    }
+
+    /// Get the target hash (mandatory field)
+    #[must_use]
+    pub fn target_hash(&self) -> &str {
+        match self {
+            Self::Rfc3161 { target_hash, .. } | Self::BitcoinOts { target_hash, .. } => target_hash,
+        }
+    }
+
+    /// Check if this anchor targets the `super_root`
+    #[must_use]
+    pub fn targets_super_root(&self) -> bool {
+        self.target() == ANCHOR_TARGET_SUPER_ROOT
+    }
+
+    /// Check if this anchor targets the `data_tree_root`
+    #[must_use]
+    pub fn targets_data_tree_root(&self) -> bool {
+        self.target() == ANCHOR_TARGET_DATA_TREE_ROOT
+    }
+
+    /// Get the timestamp string
+    #[must_use]
+    pub fn timestamp(&self) -> &str {
+        match self {
+            Self::Rfc3161 { timestamp, .. } | Self::BitcoinOts { timestamp, .. } => timestamp,
+        }
+    }
 }
 
 // ========== Receipt Implementation ==========
@@ -791,6 +874,8 @@ mod tests {
             "anchors": [
                 {
                     "type": "rfc3161",
+                    "target": "data_tree_root",
+                    "target_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                     "tsa_url": "https://freetsa.org/tsr",
                     "timestamp": "2024-01-01T00:00:00Z",
                     "token_der": "base64:AAAA"
@@ -1077,5 +1162,122 @@ mod super_proof_tests {
 
         assert!(proof.inclusion_path_bytes().unwrap().is_empty());
         assert!(proof.consistency_to_origin_bytes().unwrap().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod anchor_target_tests {
+    use super::*;
+
+    fn make_test_hash(byte: u8) -> String {
+        format!("sha256:{}", hex::encode([byte; 32]))
+    }
+
+    #[test]
+    fn test_rfc3161_with_mandatory_target() {
+        let anchor = ReceiptAnchor::Rfc3161 {
+            target: "data_tree_root".to_string(),
+            target_hash: make_test_hash(0xaa),
+            tsa_url: "https://freetsa.org/tsr".to_string(),
+            timestamp: "2026-01-13T12:00:00Z".to_string(),
+            token_der: "base64:AAAA".to_string(),
+        };
+
+        assert_eq!(anchor.anchor_type(), "rfc3161");
+        assert_eq!(anchor.target(), "data_tree_root");
+        assert_eq!(anchor.target_hash(), make_test_hash(0xaa));
+        assert!(anchor.targets_data_tree_root());
+        assert!(!anchor.targets_super_root());
+    }
+
+    #[test]
+    fn test_bitcoin_ots_with_mandatory_super_root_target() {
+        let anchor = ReceiptAnchor::BitcoinOts {
+            target: "super_root".to_string(),
+            target_hash: make_test_hash(0xbb),
+            timestamp: "2026-01-13T12:00:00Z".to_string(),
+            bitcoin_block_height: 900_000,
+            bitcoin_block_time: "2026-01-13T11:30:00Z".to_string(),
+            ots_proof: "base64:BBBB".to_string(),
+        };
+
+        assert_eq!(anchor.anchor_type(), "bitcoin_ots");
+        assert_eq!(anchor.target(), "super_root");
+        assert_eq!(anchor.target_hash(), make_test_hash(0xbb));
+        assert!(anchor.targets_super_root());
+        assert!(!anchor.targets_data_tree_root());
+    }
+
+    #[test]
+    fn test_serialization_includes_all_fields() {
+        let anchor = ReceiptAnchor::Rfc3161 {
+            target: "data_tree_root".to_string(),
+            target_hash: make_test_hash(0xaa),
+            tsa_url: "https://freetsa.org/tsr".to_string(),
+            timestamp: "2026-01-13T12:00:00Z".to_string(),
+            token_der: "base64:AAAA".to_string(),
+        };
+
+        let json = serde_json::to_string(&anchor).unwrap();
+        assert!(json.contains("\"target\""));
+        assert!(json.contains("\"target_hash\""));
+        assert!(json.contains("\"data_tree_root\""));
+    }
+
+    #[test]
+    fn test_bitcoin_ots_no_tree_size_field() {
+        // BitcoinOts should NOT have tree_size field
+        let anchor = ReceiptAnchor::BitcoinOts {
+            target: "super_root".to_string(),
+            target_hash: make_test_hash(0xbb),
+            timestamp: "2026-01-13T12:00:00Z".to_string(),
+            bitcoin_block_height: 900_000,
+            bitcoin_block_time: "2026-01-13T11:30:00Z".to_string(),
+            ots_proof: "base64:BBBB".to_string(),
+        };
+
+        let json = serde_json::to_string(&anchor).unwrap();
+        assert!(!json.contains("\"tree_size\""), "tree_size should not be present");
+    }
+
+    #[test]
+    fn test_timestamp_accessor() {
+        let rfc3161 = ReceiptAnchor::Rfc3161 {
+            target: "data_tree_root".to_string(),
+            target_hash: make_test_hash(0xaa),
+            tsa_url: "https://freetsa.org/tsr".to_string(),
+            timestamp: "2026-01-13T12:00:00Z".to_string(),
+            token_der: "base64:AAAA".to_string(),
+        };
+        assert_eq!(rfc3161.timestamp(), "2026-01-13T12:00:00Z");
+
+        let ots = ReceiptAnchor::BitcoinOts {
+            target: "super_root".to_string(),
+            target_hash: make_test_hash(0xbb),
+            timestamp: "2026-01-13T13:00:00Z".to_string(),
+            bitcoin_block_height: 900_000,
+            bitcoin_block_time: "2026-01-13T11:30:00Z".to_string(),
+            ots_proof: "base64:BBBB".to_string(),
+        };
+        assert_eq!(ots.timestamp(), "2026-01-13T13:00:00Z");
+    }
+
+    #[test]
+    fn test_anchor_equality() {
+        let anchor1 = ReceiptAnchor::Rfc3161 {
+            target: "data_tree_root".to_string(),
+            target_hash: make_test_hash(0xaa),
+            tsa_url: "https://freetsa.org/tsr".to_string(),
+            timestamp: "2026-01-13T12:00:00Z".to_string(),
+            token_der: "base64:AAAA".to_string(),
+        };
+        let anchor2 = anchor1.clone();
+        assert_eq!(anchor1, anchor2);
+    }
+
+    #[test]
+    fn test_target_constants() {
+        assert_eq!(ANCHOR_TARGET_DATA_TREE_ROOT, "data_tree_root");
+        assert_eq!(ANCHOR_TARGET_SUPER_ROOT, "super_root");
     }
 }

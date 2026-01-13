@@ -104,7 +104,7 @@ pub fn verify_checkpoint_signature(
 /// Verifies RFC 3161 timestamp tokens and Bitcoin OTS anchors cryptographically.
 pub fn verify_anchor(anchor: &ReceiptAnchor, expected_root: &[u8; 32]) -> AnchorVerificationResult {
     match anchor {
-        ReceiptAnchor::Rfc3161 { tsa_url: _, timestamp, token_der } => {
+        ReceiptAnchor::Rfc3161 { tsa_url: _, timestamp, token_der, .. } => {
             verify_rfc3161_anchor_impl(timestamp, token_der, expected_root)
         }
         ReceiptAnchor::BitcoinOts { timestamp, ots_proof, .. } => {
