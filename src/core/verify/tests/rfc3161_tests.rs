@@ -123,16 +123,19 @@ fn test_rfc3161_no_panic_on_arbitrary_input() {
 #[cfg(not(feature = "rfc3161-verify"))]
 mod rfc3161_feature_disabled_tests {
     use crate::core::receipt::ReceiptAnchor;
-    use crate::core::verify::helpers::verify_anchor;
+    use crate::core::verify::helpers::{verify_anchor, AnchorVerificationContext};
 
     #[test]
     fn test_rfc3161_feature_disabled() {
         let anchor = ReceiptAnchor::Rfc3161 {
+            target: "data_tree_root".to_string(),
+            target_hash: format!("sha256:{}", hex::encode([0u8; 32])),
             tsa_url: "https://freetsa.org/tsr".to_string(),
             timestamp: "2024-01-01T00:00:00Z".to_string(),
             token_der: "base64:AAAA".to_string(),
         };
-        let result = verify_anchor(&anchor, &[0u8; 32]);
+        let context = AnchorVerificationContext::new([0u8; 32], [1u8; 32]);
+        let result = verify_anchor(&anchor, &context);
         assert!(!result.is_valid);
         assert!(result.error.as_ref().unwrap().contains("feature"));
     }

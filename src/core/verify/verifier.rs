@@ -116,8 +116,23 @@ impl ReceiptVerifier {
 
         // STEP 4: Verify Anchors (optional)
         if !self.options.skip_anchors {
+            // Parse super_root for anchor context
+            let Ok(super_root) = parse_hash(&receipt.super_proof.super_root) else {
+                result.errors.push(VerificationError::InvalidHash {
+                    field: "super_proof.super_root".to_string(),
+                    message: "failed to parse super root hash".to_string(),
+                });
+                return result;
+            };
+
+            // Create anchor verification context with both roots
+            let anchor_context = crate::core::verify::helpers::AnchorVerificationContext::new(
+                result.root_hash,
+                super_root,
+            );
+
             for anchor in &receipt.anchors {
-                let anchor_result = verify_anchor(anchor, &result.root_hash);
+                let anchor_result = verify_anchor(anchor, &anchor_context);
                 result.anchor_results.push(anchor_result);
             }
 

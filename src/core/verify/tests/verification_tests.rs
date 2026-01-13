@@ -298,6 +298,8 @@ fn test_reconstruct_leaf_hash_invalid_format() {
 
 #[test]
 fn test_verify_anchor_rfc3161() {
+    use crate::core::verify::helpers::AnchorVerificationContext;
+
     let anchor = ReceiptAnchor::Rfc3161 {
         target: "data_tree_root".to_string(),
         target_hash: format!("sha256:{}", hex::encode([0u8; 32])),
@@ -305,9 +307,11 @@ fn test_verify_anchor_rfc3161() {
         timestamp: "2026-01-01T00:00:00Z".to_string(),
         token_der: "base64:token".to_string(),
     };
-    let root_hash = [0u8; 32];
+    let data_tree_root = [0u8; 32];
+    let super_root = [1u8; 32];
+    let context = AnchorVerificationContext::new(data_tree_root, super_root);
 
-    let result = verify_anchor(&anchor, &root_hash);
+    let result = verify_anchor(&anchor, &context);
     assert_eq!(result.anchor_type, "rfc3161");
 
     #[cfg(feature = "rfc3161-verify")]
@@ -328,6 +332,8 @@ fn test_verify_anchor_rfc3161() {
 
 #[test]
 fn test_verify_anchor_bitcoin() {
+    use crate::core::verify::helpers::AnchorVerificationContext;
+
     let anchor = ReceiptAnchor::BitcoinOts {
         target: "super_root".to_string(),
         target_hash: format!("sha256:{}", hex::encode([0u8; 32])),
@@ -336,9 +342,11 @@ fn test_verify_anchor_bitcoin() {
         bitcoin_block_time: "2024-01-01T12:00:00Z".to_string(),
         ots_proof: "base64:proof".to_string(),
     };
-    let root_hash = [0u8; 32];
+    let data_tree_root = [1u8; 32];
+    let super_root = [0u8; 32];
+    let context = AnchorVerificationContext::new(data_tree_root, super_root);
 
-    let result = verify_anchor(&anchor, &root_hash);
+    let result = verify_anchor(&anchor, &context);
     assert_eq!(result.anchor_type, "bitcoin_ots");
 
     #[cfg(feature = "bitcoin-ots")]
