@@ -13,6 +13,9 @@ pub(in crate::core) mod helpers;
 
 pub mod anchors;
 
+pub mod super_tree;
+pub use super_tree::{verify_super_inclusion, SuperVerificationResult};
+
 #[cfg(feature = "rfc3161-verify")]
 pub use anchors::rfc3161::{ParsedTimestampToken, Rfc3161VerifyResult};
 
