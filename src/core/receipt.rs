@@ -1,6 +1,6 @@
-//! Evidence Receipt v1.0.0 structures and parsing
+//! Evidence Receipt v2.0.0 structures and parsing
 //!
-//! This module defines the Receipt data structures for ATL Protocol v1.0.0.
+//! This module defines the Receipt data structures for ATL Protocol v2.0.0.
 //! It provides ONLY:
 //!
 //! 1. **Data structures** for receipts
@@ -22,7 +22,7 @@
 //! use atl_core::core::receipt::Receipt;
 //!
 //! let json = r#"{
-//!   "spec_version": "1.0.0",
+//!   "spec_version": "2.0.0",
 //!   "entry": {
 //!     "id": "550e8400-e29b-41d4-a716-446655440000",
 //!     "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -41,11 +41,19 @@
 //!       "signature": "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
 //!       "key_id": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 //!     }
+//!   },
+//!   "super_proof": {
+//!     "genesis_super_root": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+//!     "data_tree_index": 0,
+//!     "super_tree_size": 1,
+//!     "super_root": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+//!     "inclusion": [],
+//!     "consistency_to_origin": []
 //!   }
 //! }"#;
 //!
 //! let receipt = Receipt::from_json(json).unwrap();
-//! assert_eq!(receipt.spec_version(), "1.0.0");
+//! assert_eq!(receipt.spec_version(), "2.0.0");
 //! ```
 
 use crate::core::checkpoint::CheckpointJson;
@@ -57,7 +65,7 @@ use uuid::Uuid;
 // ========== Constants ==========
 
 /// Current receipt specification version
-pub const RECEIPT_SPEC_VERSION: &str = "1.0.0";
+pub const RECEIPT_SPEC_VERSION: &str = "2.0.0";
 
 /// Anchor target: Data Tree Root (for RFC 3161)
 pub const ANCHOR_TARGET_DATA_TREE_ROOT: &str = "data_tree_root";
@@ -73,24 +81,50 @@ pub const ANCHOR_TARGET_SUPER_ROOT: &str = "super_root";
 /// exists in the transparency log. Verification requires only the
 /// receipt and a trusted public key.
 ///
+/// ## Receipt Tiers
+///
+/// | Tier | Name | Contents |
+/// |------|------|----------|
+/// | 1 | Receipt-Lite | Entry + Inclusion Proof + Checkpoint + Super Proof |
+/// | 2 | Receipt-TSA | + TSA Anchor (on Data Tree Root) |
+/// | 3 | Receipt-Full | + OTS Anchor (on Super Root) |
+///
+/// ## Version
+///
+/// - v2.0.0: Current version with mandatory `super_proof`
+///
 /// ## Invariants
 ///
-/// - `spec_version` must be "1.0.0"
+/// - `spec_version` MUST be "2.0.0"
 /// - `entry.id` is a valid UUID v4
 /// - `entry.payload_hash` is in "sha256:..." format
 /// - `proof.inclusion_path` contains "sha256:..." hashes
 /// - `proof.checkpoint.signature` is in "base64:..." format
+/// - `super_proof` is ALWAYS present (mandatory)
 /// - `anchors` is optional and can be empty
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Receipt {
-    /// Specification version (always "1.0.0" for this implementation)
+    /// Specification version (MUST be "2.0.0")
     pub spec_version: String,
+
+    /// URL to request an upgraded receipt (optional)
+    ///
+    /// Clients can use this URL to fetch a receipt with additional anchors.
+    /// If omitted, receipt cannot be upgraded.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub upgrade_url: Option<String>,
 
     /// Entry information
     pub entry: ReceiptEntry,
 
-    /// Cryptographic proof
+    /// Cryptographic proof linking entry to Data Tree root
     pub proof: ReceiptProof,
+
+    /// Super-Tree proof for global chain consistency (MANDATORY)
+    ///
+    /// Proves that the Data Tree root is included in the Super-Tree
+    /// and that the Super-Tree is consistent with its genesis state.
+    pub super_proof: SuperProof,
 
     /// External timestamp anchors (optional)
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
@@ -271,6 +305,32 @@ pub struct SuperProof {
     pub consistency_to_origin: Vec<String>,
 }
 
+/// Receipt tier classification
+///
+/// Indicates the level of trust and completeness of a receipt.
+/// All tiers have `super_proof` (mandatory in v2.0).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReceiptTier {
+    /// Receipt-Lite: Entry + Inclusion Proof + Checkpoint + Super Proof
+    Lite,
+    /// Receipt-TSA: + RFC 3161 timestamp anchor
+    Tsa,
+    /// Receipt-Full: + Bitcoin OTS anchor
+    Full,
+}
+
+impl ReceiptTier {
+    /// Get human-readable name
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
+        match self {
+            Self::Lite => "Receipt-Lite",
+            Self::Tsa => "Receipt-TSA",
+            Self::Full => "Receipt-Full",
+        }
+    }
+}
+
 // ========== ReceiptAnchor Implementation ==========
 
 impl ReceiptAnchor {
@@ -325,56 +385,18 @@ impl ReceiptAnchor {
 impl Receipt {
     /// Deserialize receipt from JSON string
     ///
-    /// # Arguments
-    ///
-    /// * `json` - JSON string containing receipt
-    ///
-    /// # Returns
-    ///
-    /// * `Receipt` on success
+    /// Only v2.0.0 receipts are supported.
     ///
     /// # Errors
     ///
-    /// * `AtlError::InvalidReceipt` if JSON is malformed
-    /// * `AtlError::UnsupportedReceiptVersion` if `spec_version` is not "1.0.0"
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use atl_core::core::receipt::Receipt;
-    ///
-    /// let json = r#"{
-    ///   "spec_version": "1.0.0",
-    ///   "entry": {
-    ///     "id": "550e8400-e29b-41d4-a716-446655440000",
-    ///     "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    ///     "metadata": {}
-    ///   },
-    ///   "proof": {
-    ///     "tree_size": 1,
-    ///     "root_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    ///     "inclusion_path": [],
-    ///     "leaf_index": 0,
-    ///     "checkpoint": {
-    ///       "origin": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-    ///       "tree_size": 1,
-    ///       "root_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    ///       "timestamp": 1704067200000000000,
-    ///       "signature": "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-    ///       "key_id": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-    ///     }
-    ///   }
-    /// }"#;
-    ///
-    /// let receipt = Receipt::from_json(json).unwrap();
-    /// assert_eq!(receipt.spec_version(), "1.0.0");
-    /// ```
+    /// * `AtlError::InvalidReceipt` if JSON is malformed or missing required fields
+    /// * `AtlError::UnsupportedReceiptVersion` if version is not "2.0.0"
     pub fn from_json(json: &str) -> AtlResult<Self> {
         let receipt: Self =
             serde_json::from_str(json).map_err(|e| AtlError::InvalidReceipt(e.to_string()))?;
 
-        // Validate spec version
-        if receipt.spec_version != RECEIPT_SPEC_VERSION {
+        // Only accept v2.0.0 receipts
+        if receipt.spec_version != "2.0.0" {
             return Err(AtlError::UnsupportedReceiptVersion(receipt.spec_version));
         }
 
@@ -462,6 +484,54 @@ impl Receipt {
     #[must_use]
     pub const fn leaf_index(&self) -> u64 {
         self.proof.leaf_index
+    }
+
+    /// Get the receipt tier
+    ///
+    /// Returns the tier based on available anchors:
+    /// - Lite: No anchors (but always has `super_proof`)
+    /// - TSA: Has RFC 3161 anchor but no Bitcoin OTS
+    /// - Full: Has RFC 3161 + Bitcoin OTS anchors
+    #[must_use]
+    pub fn tier(&self) -> ReceiptTier {
+        let has_tsa = self.anchors.iter().any(|a| matches!(a, ReceiptAnchor::Rfc3161 { .. }));
+        let has_ots = self.anchors.iter().any(|a| matches!(a, ReceiptAnchor::BitcoinOts { .. }));
+
+        match (has_tsa, has_ots) {
+            (true, true) => ReceiptTier::Full,
+            (true, false) => ReceiptTier::Tsa,
+            _ => ReceiptTier::Lite,
+        }
+    }
+
+    /// Get `super_proof` as reference (always present)
+    #[must_use]
+    pub const fn super_proof(&self) -> &SuperProof {
+        &self.super_proof
+    }
+
+    /// Get `genesis_super_root` (always present)
+    #[must_use]
+    pub fn genesis_super_root(&self) -> &str {
+        &self.super_proof.genesis_super_root
+    }
+
+    /// Get `super_root` (always present)
+    #[must_use]
+    pub fn super_root(&self) -> &str {
+        &self.super_proof.super_root
+    }
+
+    /// Get `data_tree_index` (always present)
+    #[must_use]
+    pub const fn data_tree_index(&self) -> u64 {
+        self.super_proof.data_tree_index
+    }
+
+    /// Get `super_tree_size` (always present)
+    #[must_use]
+    pub const fn super_tree_size(&self) -> u64 {
+        self.super_proof.super_tree_size
     }
 }
 
@@ -627,10 +697,25 @@ pub fn format_signature(sig: &[u8; 64]) -> String {
 mod tests {
     use super::*;
 
+    fn make_test_hash(byte: u8) -> String {
+        format!("sha256:{}", hex::encode([byte; 32]))
+    }
+
+    fn make_test_super_proof() -> SuperProof {
+        SuperProof {
+            genesis_super_root: make_test_hash(0xaa),
+            data_tree_index: 5,
+            super_tree_size: 10,
+            super_root: make_test_hash(0xbb),
+            inclusion: vec![make_test_hash(0xcc)],
+            consistency_to_origin: vec![make_test_hash(0xdd)],
+        }
+    }
+
     #[test]
     fn test_receipt_from_json() {
         let json = r#"{
-            "spec_version": "1.0.0",
+            "spec_version": "2.0.0",
             "entry": {
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -649,22 +734,32 @@ mod tests {
                     "signature": "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
                     "key_id": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
                 }
+            },
+            "super_proof": {
+                "genesis_super_root": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "data_tree_index": 5,
+                "super_tree_size": 10,
+                "super_root": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "inclusion": ["sha256:1111111111111111111111111111111111111111111111111111111111111111"],
+                "consistency_to_origin": ["sha256:2222222222222222222222222222222222222222222222222222222222222222"]
             }
         }"#;
 
         let receipt = Receipt::from_json(json).unwrap();
 
-        assert_eq!(receipt.spec_version, "1.0.0");
+        assert_eq!(receipt.spec_version, "2.0.0");
         assert_eq!(receipt.entry.id.to_string(), "550e8400-e29b-41d4-a716-446655440000");
         assert_eq!(receipt.proof.tree_size, 100);
         assert_eq!(receipt.proof.leaf_index, 42);
         assert!(receipt.anchors.is_empty());
+        assert_eq!(receipt.super_proof.data_tree_index, 5);
+        assert_eq!(receipt.super_proof.super_tree_size, 10);
     }
 
     #[test]
     fn test_receipt_roundtrip() {
         let original_json = r#"{
-            "spec_version": "1.0.0",
+            "spec_version": "2.0.0",
             "entry": {
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -683,6 +778,14 @@ mod tests {
                     "signature": "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
                     "key_id": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
                 }
+            },
+            "super_proof": {
+                "genesis_super_root": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "data_tree_index": 0,
+                "super_tree_size": 1,
+                "super_root": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "inclusion": [],
+                "consistency_to_origin": []
             }
         }"#;
 
@@ -696,8 +799,9 @@ mod tests {
 
     #[test]
     fn test_unsupported_version() {
+        // v1.0.0 is now unsupported (but receipt is valid to test version check)
         let json = r#"{
-            "spec_version": "2.0.0",
+            "spec_version": "1.0.0",
             "entry": {
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -716,6 +820,14 @@ mod tests {
                     "signature": "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
                     "key_id": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
                 }
+            },
+            "super_proof": {
+                "genesis_super_root": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "data_tree_index": 0,
+                "super_tree_size": 1,
+                "super_root": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "inclusion": [],
+                "consistency_to_origin": []
             }
         }"#;
 
@@ -790,6 +902,7 @@ mod tests {
     fn test_anchors_omitted_when_empty() {
         let receipt = Receipt {
             spec_version: RECEIPT_SPEC_VERSION.to_string(),
+            upgrade_url: None,
             entry: ReceiptEntry {
                 id: Uuid::nil(),
                 payload_hash: "sha256:".to_string() + &"aa".repeat(32),
@@ -810,6 +923,7 @@ mod tests {
                 },
                 consistency_proof: None,
             },
+            super_proof: make_test_super_proof(),
             anchors: vec![],
         };
 
@@ -821,6 +935,7 @@ mod tests {
     fn test_consistency_proof_omitted_when_none() {
         let receipt = Receipt {
             spec_version: RECEIPT_SPEC_VERSION.to_string(),
+            upgrade_url: None,
             entry: ReceiptEntry {
                 id: Uuid::nil(),
                 payload_hash: "sha256:".to_string() + &"aa".repeat(32),
@@ -841,6 +956,7 @@ mod tests {
                 },
                 consistency_proof: None,
             },
+            super_proof: make_test_super_proof(),
             anchors: vec![],
         };
 
@@ -851,7 +967,7 @@ mod tests {
     #[test]
     fn test_receipt_with_anchors() {
         let json = r#"{
-            "spec_version": "1.0.0",
+            "spec_version": "2.0.0",
             "entry": {
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -870,6 +986,14 @@ mod tests {
                     "signature": "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
                     "key_id": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
                 }
+            },
+            "super_proof": {
+                "genesis_super_root": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "data_tree_index": 0,
+                "super_tree_size": 1,
+                "super_root": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "inclusion": [],
+                "consistency_to_origin": []
             },
             "anchors": [
                 {
@@ -892,7 +1016,7 @@ mod tests {
     #[test]
     fn test_receipt_with_consistency_proof() {
         let json = r#"{
-            "spec_version": "1.0.0",
+            "spec_version": "2.0.0",
             "entry": {
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -915,6 +1039,14 @@ mod tests {
                     "from_tree_size": 5,
                     "path": ["sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"]
                 }
+            },
+            "super_proof": {
+                "genesis_super_root": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "data_tree_index": 0,
+                "super_tree_size": 1,
+                "super_root": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "inclusion": [],
+                "consistency_to_origin": []
             }
         }"#;
 
@@ -928,7 +1060,7 @@ mod tests {
     #[test]
     fn test_receipt_helper_methods() {
         let json = r#"{
-            "spec_version": "1.0.0",
+            "spec_version": "2.0.0",
             "entry": {
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -949,12 +1081,20 @@ mod tests {
                     "signature": "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
                     "key_id": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
                 }
+            },
+            "super_proof": {
+                "genesis_super_root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "data_tree_index": 0,
+                "super_tree_size": 1,
+                "super_root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "inclusion": [],
+                "consistency_to_origin": []
             }
         }"#;
 
         let receipt = Receipt::from_json(json).unwrap();
 
-        assert_eq!(receipt.spec_version(), "1.0.0");
+        assert_eq!(receipt.spec_version(), "2.0.0");
         assert_eq!(receipt.entry_id().to_string(), "550e8400-e29b-41d4-a716-446655440000");
         assert_eq!(receipt.tree_size(), 100);
         assert_eq!(receipt.leaf_index(), 42);
@@ -988,6 +1128,7 @@ mod tests {
     fn test_receipt_to_json_pretty() {
         let receipt = Receipt {
             spec_version: RECEIPT_SPEC_VERSION.to_string(),
+            upgrade_url: None,
             entry: ReceiptEntry {
                 id: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
                 payload_hash: "sha256:".to_string() + &"aa".repeat(32),
@@ -1008,12 +1149,271 @@ mod tests {
                 },
                 consistency_proof: None,
             },
+            super_proof: make_test_super_proof(),
             anchors: vec![],
         };
 
         let pretty = receipt.to_json_pretty().unwrap();
         assert!(pretty.contains('\n')); // Pretty print includes newlines
         assert!(pretty.contains("spec_version"));
+    }
+}
+
+#[cfg(test)]
+mod receipt_v2_tests {
+    use super::*;
+
+    fn make_test_hash(byte: u8) -> String {
+        format!("sha256:{}", hex::encode([byte; 32]))
+    }
+
+    fn make_test_super_proof() -> SuperProof {
+        SuperProof {
+            genesis_super_root: make_test_hash(0xaa),
+            data_tree_index: 5,
+            super_tree_size: 10,
+            super_root: make_test_hash(0xbb),
+            inclusion: vec![make_test_hash(0xcc)],
+            consistency_to_origin: vec![make_test_hash(0xdd)],
+        }
+    }
+
+    #[test]
+    fn test_receipt_without_super_proof_fails() {
+        // Receipt missing super_proof field - MUST FAIL
+        let json = r#"{
+            "spec_version": "2.0.0",
+            "entry": {
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "metadata": {}
+            },
+            "proof": {
+                "tree_size": 1,
+                "root_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "inclusion_path": [],
+                "leaf_index": 0,
+                "checkpoint": {
+                    "origin": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                    "tree_size": 1,
+                    "root_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "timestamp": 1704067200000000000,
+                    "signature": "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                    "key_id": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+                }
+            }
+        }"#;
+
+        let result = Receipt::from_json(json);
+        assert!(result.is_err(), "Receipt without super_proof should fail");
+    }
+
+    #[test]
+    fn test_receipt_with_super_proof_parses() {
+        let json = r#"{
+            "spec_version": "2.0.0",
+            "entry": {
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "metadata": {}
+            },
+            "proof": {
+                "tree_size": 1,
+                "root_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "inclusion_path": [],
+                "leaf_index": 0,
+                "checkpoint": {
+                    "origin": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                    "tree_size": 1,
+                    "root_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "timestamp": 1704067200000000000,
+                    "signature": "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                    "key_id": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+                }
+            },
+            "super_proof": {
+                "genesis_super_root": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "data_tree_index": 5,
+                "super_tree_size": 10,
+                "super_root": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "inclusion": ["sha256:1111111111111111111111111111111111111111111111111111111111111111"],
+                "consistency_to_origin": ["sha256:2222222222222222222222222222222222222222222222222222222222222222"]
+            }
+        }"#;
+
+        let receipt = Receipt::from_json(json).expect("Receipt should parse");
+        assert_eq!(receipt.spec_version, "2.0.0");
+        assert_eq!(receipt.super_proof.data_tree_index, 5);
+        assert_eq!(receipt.super_proof.super_tree_size, 10);
+    }
+
+    #[test]
+    fn test_super_proof_accessors() {
+        let receipt = Receipt {
+            spec_version: "2.0.0".to_string(),
+            upgrade_url: None,
+            entry: ReceiptEntry {
+                id: Uuid::nil(),
+                payload_hash: make_test_hash(0xaa),
+                metadata: serde_json::json!({}),
+            },
+            proof: ReceiptProof {
+                tree_size: 1,
+                root_hash: make_test_hash(0xbb),
+                inclusion_path: vec![],
+                leaf_index: 0,
+                checkpoint: CheckpointJson {
+                    origin: make_test_hash(0xcc),
+                    tree_size: 1,
+                    root_hash: make_test_hash(0xbb),
+                    timestamp: 0,
+                    signature: "base64:AAAA".to_string(),
+                    key_id: make_test_hash(0xdd),
+                },
+                consistency_proof: None,
+            },
+            super_proof: make_test_super_proof(),
+            anchors: vec![],
+        };
+
+        // All accessors return concrete types, not Option
+        assert_eq!(receipt.genesis_super_root(), make_test_hash(0xaa));
+        assert_eq!(receipt.super_root(), make_test_hash(0xbb));
+        assert_eq!(receipt.data_tree_index(), 5);
+        assert_eq!(receipt.super_tree_size(), 10);
+    }
+
+    #[test]
+    fn test_tier_classification() {
+        let base_receipt = Receipt {
+            spec_version: "2.0.0".to_string(),
+            upgrade_url: None,
+            entry: ReceiptEntry {
+                id: Uuid::nil(),
+                payload_hash: make_test_hash(0xaa),
+                metadata: serde_json::json!({}),
+            },
+            proof: ReceiptProof {
+                tree_size: 1,
+                root_hash: make_test_hash(0xbb),
+                inclusion_path: vec![],
+                leaf_index: 0,
+                checkpoint: CheckpointJson {
+                    origin: make_test_hash(0xcc),
+                    tree_size: 1,
+                    root_hash: make_test_hash(0xbb),
+                    timestamp: 0,
+                    signature: "base64:AAAA".to_string(),
+                    key_id: make_test_hash(0xdd),
+                },
+                consistency_proof: None,
+            },
+            super_proof: make_test_super_proof(),
+            anchors: vec![],
+        };
+
+        // Lite: no anchors
+        assert_eq!(base_receipt.tier(), ReceiptTier::Lite);
+
+        // TSA: has RFC 3161 anchor
+        let mut tsa_receipt = base_receipt;
+        tsa_receipt.anchors = vec![ReceiptAnchor::Rfc3161 {
+            target: "data_tree_root".to_string(),
+            target_hash: make_test_hash(0xbb),
+            tsa_url: "https://freetsa.org/tsr".to_string(),
+            timestamp: "2026-01-13T12:00:00Z".to_string(),
+            token_der: "base64:AAAA".to_string(),
+        }];
+        assert_eq!(tsa_receipt.tier(), ReceiptTier::Tsa);
+
+        // Full: has TSA + OTS
+        let mut full_receipt = tsa_receipt;
+        full_receipt.anchors.push(ReceiptAnchor::BitcoinOts {
+            target: "super_root".to_string(),
+            target_hash: make_test_hash(0xbb),
+            timestamp: "2026-01-13T12:00:00Z".to_string(),
+            bitcoin_block_height: 900_000,
+            bitcoin_block_time: "2026-01-13T11:30:00Z".to_string(),
+            ots_proof: "base64:BBBB".to_string(),
+        });
+        assert_eq!(full_receipt.tier(), ReceiptTier::Full);
+    }
+
+    #[test]
+    fn test_unsupported_version_rejected() {
+        let json = r#"{
+            "spec_version": "3.0.0",
+            "entry": {
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "metadata": {}
+            },
+            "proof": {
+                "tree_size": 1,
+                "root_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "inclusion_path": [],
+                "leaf_index": 0,
+                "checkpoint": {
+                    "origin": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                    "tree_size": 1,
+                    "root_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "timestamp": 0,
+                    "signature": "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                    "key_id": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+                }
+            },
+            "super_proof": {
+                "genesis_super_root": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "data_tree_index": 0,
+                "super_tree_size": 1,
+                "super_root": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "inclusion": [],
+                "consistency_to_origin": []
+            }
+        }"#;
+
+        let result = Receipt::from_json(json);
+        assert!(matches!(result, Err(AtlError::UnsupportedReceiptVersion(_))));
+    }
+
+    #[test]
+    fn test_super_proof_always_serialized() {
+        let receipt = Receipt {
+            spec_version: "2.0.0".to_string(),
+            upgrade_url: None,
+            entry: ReceiptEntry {
+                id: Uuid::nil(),
+                payload_hash: make_test_hash(0xaa),
+                metadata: serde_json::json!({}),
+            },
+            proof: ReceiptProof {
+                tree_size: 1,
+                root_hash: make_test_hash(0xbb),
+                inclusion_path: vec![],
+                leaf_index: 0,
+                checkpoint: CheckpointJson {
+                    origin: make_test_hash(0xcc),
+                    tree_size: 1,
+                    root_hash: make_test_hash(0xbb),
+                    timestamp: 0,
+                    signature: "base64:AAAA".to_string(),
+                    key_id: make_test_hash(0xdd),
+                },
+                consistency_proof: None,
+            },
+            super_proof: make_test_super_proof(),
+            anchors: vec![],
+        };
+
+        let json = receipt.to_json().unwrap();
+        assert!(json.contains("\"super_proof\""), "super_proof must always be in JSON");
+    }
+
+    #[test]
+    fn test_receipt_tier_name() {
+        assert_eq!(ReceiptTier::Lite.name(), "Receipt-Lite");
+        assert_eq!(ReceiptTier::Tsa.name(), "Receipt-TSA");
+        assert_eq!(ReceiptTier::Full.name(), "Receipt-Full");
     }
 }
 

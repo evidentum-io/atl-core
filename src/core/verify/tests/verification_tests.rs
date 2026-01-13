@@ -5,7 +5,7 @@ use crate::core::checkpoint::{Checkpoint, CheckpointJson, CheckpointVerifier};
 use crate::core::jcs::canonicalize_and_hash;
 use crate::core::merkle::compute_leaf_hash;
 use crate::core::receipt::{
-    format_hash, format_signature, Receipt, ReceiptAnchor, ReceiptEntry, ReceiptProof,
+    format_hash, format_signature, Receipt, ReceiptAnchor, ReceiptEntry, ReceiptProof, SuperProof,
 };
 use crate::core::verify::{
     verify_inclusion_only, verify_receipt, verify_receipt_json, AnchorVerificationResult,
@@ -46,7 +46,8 @@ fn create_test_receipt() -> (Receipt, [u8; 32], SigningKey) {
 
     // Create receipt
     let receipt = Receipt {
-        spec_version: "1.0.0".to_string(),
+        spec_version: "2.0.0".to_string(),
+        upgrade_url: None,
         entry: ReceiptEntry { id: Uuid::nil(), payload_hash: format_hash(&payload_hash), metadata },
         proof: ReceiptProof {
             leaf_index: 0,
@@ -62,6 +63,14 @@ fn create_test_receipt() -> (Receipt, [u8; 32], SigningKey) {
                 key_id: format_hash(&verifier.key_id()),
             },
             consistency_proof: None,
+        },
+        super_proof: SuperProof {
+            genesis_super_root: format_hash(&origin),
+            data_tree_index: 0,
+            super_tree_size: 1,
+            super_root: format_hash(&origin),
+            inclusion: vec![],
+            consistency_to_origin: vec![],
         },
         anchors: vec![],
     };
