@@ -102,7 +102,7 @@ pub use core::checkpoint::{
 
 // Receipt types
 pub use core::receipt::{
-    Receipt, ReceiptAnchor, ReceiptConsistencyProof, ReceiptEntry, ReceiptProof,
+    Receipt, ReceiptAnchor, ReceiptConsistencyProof, ReceiptEntry, ReceiptProof, SuperProof,
     RECEIPT_SPEC_VERSION,
 };
 

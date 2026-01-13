@@ -184,6 +184,59 @@ pub enum ReceiptAnchor {
     },
 }
 
+/// Super-Tree proof for global chain consistency
+///
+/// Contains cryptographic data proving that a Data Tree root is included
+/// in the Super-Tree and that the Super-Tree history is consistent with
+/// its genesis state.
+///
+/// ## Fields
+///
+/// - `genesis_super_root`: Hash of Super-Tree at size 1 (first Data Tree root).
+///   Used as the immutable identifier for the log instance.
+/// - `data_tree_index`: Position of this Data Tree in the Super-Tree (0-indexed).
+/// - `super_tree_size`: Size of the Super-Tree when this proof was generated.
+/// - `super_root`: The Super-Tree root hash that was anchored.
+/// - `inclusion`: Merkle inclusion proof from Data Tree root to Super Root.
+/// - `consistency_to_origin`: RFC 9162 consistency proof from size 1 to current size.
+///
+/// ## Example JSON
+///
+/// ```json
+/// {
+///   "genesis_super_root": "sha256:aabb...",
+///   "data_tree_index": 150,
+///   "super_tree_size": 152,
+///   "super_root": "sha256:ccdd...",
+///   "inclusion": ["sha256:...", ...],
+///   "consistency_to_origin": ["sha256:...", ...]
+/// }
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SuperProof {
+    /// Hash of Super-Tree at size 1 (first Data Tree's root)
+    /// Format: "sha256:<hex>"
+    pub genesis_super_root: String,
+
+    /// Position of this Data Tree in the Super-Tree (0-indexed)
+    pub data_tree_index: u64,
+
+    /// Size of the Super-Tree at the time of anchoring
+    pub super_tree_size: u64,
+
+    /// The Super-Tree root hash that was anchored
+    /// Format: "sha256:<hex>"
+    pub super_root: String,
+
+    /// Merkle inclusion proof from Data Tree root to Super Root
+    /// Format: list of "sha256:<hex>"
+    pub inclusion: Vec<String>,
+
+    /// RFC 9162 consistency proof from Super-Tree size 1 to current size
+    /// Format: list of "sha256:<hex>"
+    pub consistency_to_origin: Vec<String>,
+}
+
 // ========== Receipt Implementation ==========
 
 impl Receipt {
@@ -326,6 +379,52 @@ impl Receipt {
     #[must_use]
     pub const fn leaf_index(&self) -> u64 {
         self.proof.leaf_index
+    }
+}
+
+// ========== SuperProof Implementation ==========
+
+impl SuperProof {
+    /// Parse `genesis_super_root` to bytes
+    ///
+    /// # Errors
+    ///
+    /// Returns `AtlError::InvalidHash` if format is invalid
+    pub fn genesis_super_root_bytes(&self) -> AtlResult<Hash> {
+        parse_hash_string(&self.genesis_super_root)
+    }
+
+    /// Parse `super_root` to bytes
+    ///
+    /// # Errors
+    ///
+    /// Returns `AtlError::InvalidHash` if format is invalid
+    pub fn super_root_bytes(&self) -> AtlResult<Hash> {
+        parse_hash_string(&self.super_root)
+    }
+
+    /// Parse inclusion path to bytes
+    ///
+    /// # Errors
+    ///
+    /// Returns `AtlError::InvalidHash` if any hash format is invalid
+    pub fn inclusion_path_bytes(&self) -> AtlResult<Vec<Hash>> {
+        self.inclusion.iter().map(|h| parse_hash_string(h)).collect()
+    }
+
+    /// Parse `consistency_to_origin` path to bytes
+    ///
+    /// # Errors
+    ///
+    /// Returns `AtlError::InvalidHash` if any hash format is invalid
+    pub fn consistency_to_origin_bytes(&self) -> AtlResult<Vec<Hash>> {
+        self.consistency_to_origin.iter().map(|h| parse_hash_string(h)).collect()
+    }
+
+    /// Check if this is a genesis proof (`data_tree_index` == 0)
+    #[must_use]
+    pub const fn is_genesis(&self) -> bool {
+        self.data_tree_index == 0
     }
 }
 
@@ -830,5 +929,153 @@ mod tests {
         let pretty = receipt.to_json_pretty().unwrap();
         assert!(pretty.contains('\n')); // Pretty print includes newlines
         assert!(pretty.contains("spec_version"));
+    }
+}
+
+#[cfg(test)]
+mod super_proof_tests {
+    use super::*;
+
+    fn make_test_hash(byte: u8) -> String {
+        format!("sha256:{}", hex::encode([byte; 32]))
+    }
+
+    #[test]
+    fn test_super_proof_serialization() {
+        let proof = SuperProof {
+            genesis_super_root: make_test_hash(0xaa),
+            data_tree_index: 5,
+            super_tree_size: 10,
+            super_root: make_test_hash(0xbb),
+            inclusion: vec![make_test_hash(0xcc), make_test_hash(0xdd)],
+            consistency_to_origin: vec![make_test_hash(0xee)],
+        };
+
+        let json = serde_json::to_string(&proof).unwrap();
+        assert!(json.contains("\"genesis_super_root\""));
+        assert!(json.contains("\"data_tree_index\""));
+        assert!(json.contains("\"super_tree_size\""));
+        assert!(json.contains("\"super_root\""));
+        assert!(json.contains("\"inclusion\""));
+        assert!(json.contains("\"consistency_to_origin\""));
+
+        let restored: SuperProof = serde_json::from_str(&json).unwrap();
+        assert_eq!(proof, restored);
+    }
+
+    #[test]
+    fn test_genesis_super_root_bytes() {
+        let proof = SuperProof {
+            genesis_super_root: make_test_hash(0xaa),
+            data_tree_index: 0,
+            super_tree_size: 1,
+            super_root: make_test_hash(0xaa),
+            inclusion: vec![],
+            consistency_to_origin: vec![],
+        };
+
+        let bytes = proof.genesis_super_root_bytes().unwrap();
+        assert_eq!(bytes, [0xaa; 32]);
+    }
+
+    #[test]
+    fn test_super_root_bytes() {
+        let proof = SuperProof {
+            genesis_super_root: make_test_hash(0xaa),
+            data_tree_index: 5,
+            super_tree_size: 10,
+            super_root: make_test_hash(0xbb),
+            inclusion: vec![],
+            consistency_to_origin: vec![],
+        };
+
+        let bytes = proof.super_root_bytes().unwrap();
+        assert_eq!(bytes, [0xbb; 32]);
+    }
+
+    #[test]
+    fn test_inclusion_path_bytes() {
+        let proof = SuperProof {
+            genesis_super_root: make_test_hash(0xaa),
+            data_tree_index: 5,
+            super_tree_size: 10,
+            super_root: make_test_hash(0xbb),
+            inclusion: vec![make_test_hash(0xcc), make_test_hash(0xdd)],
+            consistency_to_origin: vec![],
+        };
+
+        let path = proof.inclusion_path_bytes().unwrap();
+        assert_eq!(path.len(), 2);
+        assert_eq!(path[0], [0xcc; 32]);
+        assert_eq!(path[1], [0xdd; 32]);
+    }
+
+    #[test]
+    fn test_consistency_to_origin_bytes() {
+        let proof = SuperProof {
+            genesis_super_root: make_test_hash(0xaa),
+            data_tree_index: 5,
+            super_tree_size: 10,
+            super_root: make_test_hash(0xbb),
+            inclusion: vec![],
+            consistency_to_origin: vec![make_test_hash(0xee), make_test_hash(0xff)],
+        };
+
+        let path = proof.consistency_to_origin_bytes().unwrap();
+        assert_eq!(path.len(), 2);
+        assert_eq!(path[0], [0xee; 32]);
+        assert_eq!(path[1], [0xff; 32]);
+    }
+
+    #[test]
+    fn test_is_genesis() {
+        let genesis_proof = SuperProof {
+            genesis_super_root: make_test_hash(0xaa),
+            data_tree_index: 0,
+            super_tree_size: 1,
+            super_root: make_test_hash(0xaa),
+            inclusion: vec![],
+            consistency_to_origin: vec![],
+        };
+        assert!(genesis_proof.is_genesis());
+
+        let non_genesis_proof = SuperProof {
+            genesis_super_root: make_test_hash(0xaa),
+            data_tree_index: 5,
+            super_tree_size: 10,
+            super_root: make_test_hash(0xbb),
+            inclusion: vec![],
+            consistency_to_origin: vec![],
+        };
+        assert!(!non_genesis_proof.is_genesis());
+    }
+
+    #[test]
+    fn test_invalid_hash_format() {
+        let proof = SuperProof {
+            genesis_super_root: "invalid".to_string(),
+            data_tree_index: 0,
+            super_tree_size: 1,
+            super_root: make_test_hash(0xaa),
+            inclusion: vec![],
+            consistency_to_origin: vec![],
+        };
+
+        assert!(proof.genesis_super_root_bytes().is_err());
+    }
+
+    #[test]
+    fn test_empty_paths() {
+        let proof = SuperProof {
+            genesis_super_root: make_test_hash(0xaa),
+            data_tree_index: 0,
+            super_tree_size: 1,
+            super_root: make_test_hash(0xaa),
+            inclusion: vec![],
+            consistency_to_origin: vec![],
+        };
+
+        assert!(proof.inclusion_path_bytes().unwrap().is_empty());
+        assert!(proof.consistency_to_origin_bytes().unwrap().is_empty());
     }
 }
