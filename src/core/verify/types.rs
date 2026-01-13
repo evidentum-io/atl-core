@@ -11,6 +11,7 @@
 /// Contains detailed information about the verification process,
 /// including success/failure status and any errors encountered.
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct VerificationResult {
     /// Overall verification status (true if all critical checks passed)
     pub is_valid: bool,
@@ -35,6 +36,24 @@ pub struct VerificationResult {
 
     /// Consistency proof verification (if present)
     pub consistency_valid: Option<bool>,
+
+    /// Super-Tree inclusion proof verification passed (MANDATORY in v2.0)
+    pub super_inclusion_valid: bool,
+
+    /// Super-Tree consistency to origin verification passed (MANDATORY in v2.0)
+    pub super_consistency_valid: bool,
+
+    /// Genesis super root (ALWAYS present in v2.0)
+    pub genesis_super_root: [u8; 32],
+
+    /// Super root (ALWAYS present in v2.0)
+    pub super_root: [u8; 32],
+
+    /// Data Tree index in Super-Tree (ALWAYS present in v2.0)
+    pub data_tree_index: u64,
+
+    /// Super-Tree size (ALWAYS present in v2.0)
+    pub super_tree_size: u64,
 
     /// Anchor verification results
     pub anchor_results: Vec<AnchorVerificationResult>,
@@ -101,6 +120,34 @@ pub enum VerificationError {
         /// Reason for failure
         reason: String,
     },
+
+    /// Super-Tree inclusion proof failed (MANDATORY check)
+    SuperInclusionFailed {
+        /// Reason for failure
+        reason: String,
+    },
+
+    /// Super-Tree consistency to origin failed (MANDATORY check)
+    SuperConsistencyFailed {
+        /// Reason for failure
+        reason: String,
+    },
+
+    /// Super-Tree data mismatch
+    SuperDataMismatch {
+        /// Field that mismatched
+        field: String,
+        /// Expected value
+        expected: String,
+        /// Actual value
+        actual: String,
+    },
+
+    /// Missing `super_proof` (required in v2.0)
+    MissingSuperProof,
+
+    /// Unsupported receipt version
+    UnsupportedVersion(String),
 }
 
 /// Options for verification
