@@ -1,7 +1,14 @@
-//! Receipt verification and anchor validation
+//! Receipt verification module
 //!
-//! This module provides the `ReceiptVerifier` for validating ATL receipts
-//! and anchor verification (RFC 3161 timestamps, Bitcoin OTS).
+//! This module provides verification for ATL v2.0 receipts including:
+//! - Entry hash reconstruction
+//! - Merkle inclusion proof verification
+//! - Checkpoint signature verification
+//! - Anchor verification (RFC 3161, Bitcoin OTS) with mandatory target fields
+//! - Super-Tree verification (mandatory)
+//! - Cross-receipt verification
+//!
+//! **v2.0 Only**: All receipts must have valid `super_proof`.
 
 pub mod iso8601;
 pub use iso8601::{is_leap_year, parse_iso8601_to_nanos};
@@ -10,6 +17,7 @@ pub mod types;
 pub use types::{AnchorVerificationResult, VerificationError, VerificationResult, VerifyOptions};
 
 pub(in crate::core) mod helpers;
+pub use helpers::AnchorVerificationContext;
 
 pub mod anchors;
 

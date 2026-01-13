@@ -100,16 +100,38 @@ pub use core::checkpoint::{
     CHECKPOINT_BLOB_SIZE, CHECKPOINT_MAGIC,
 };
 
-// Receipt types
+// Receipt types (v2.0)
 pub use core::receipt::{
-    Receipt, ReceiptAnchor, ReceiptConsistencyProof, ReceiptEntry, ReceiptProof, SuperProof,
+    Receipt,
+    ReceiptAnchor,
+    ReceiptConsistencyProof,
+    ReceiptEntry,
+    ReceiptProof,
+    ReceiptTier,
+    // Super-Tree types (mandatory in v2.0)
+    SuperProof,
+    // Anchor target constants (mandatory in v2.0)
+    ANCHOR_TARGET_DATA_TREE_ROOT,
+    ANCHOR_TARGET_SUPER_ROOT,
     RECEIPT_SPEC_VERSION,
 };
 
-// Verification types and functions
+// Verification types and functions (v2.0)
 pub use core::verify::{
-    verify_receipt, verify_receipt_json, AnchorVerificationResult, ReceiptVerifier,
-    VerificationError, VerificationResult, VerifyOptions,
+    verify_consistency_to_origin,
+    verify_cross_receipts,
+    verify_receipt,
+    verify_receipt_json,
+    // Super-Tree verification (mandatory in v2.0)
+    verify_super_inclusion,
+    AnchorVerificationContext,
+    AnchorVerificationResult,
+    CrossReceiptVerificationResult,
+    ReceiptVerifier,
+    SuperVerificationResult,
+    VerificationError,
+    VerificationResult,
+    VerifyOptions,
 };
 
 // RFC 3161 timestamp verification (feature-gated)
@@ -148,3 +170,125 @@ pub const PROTOCOL_VERSION: &str = "2.0.0";
 /// - Optional `upgrade_url` field
 /// - Mandatory `target` and `target_hash` fields in anchors
 pub const RECEIPT_VERSION: &str = "2.0.0";
+
+// ============================================================================
+// Export Tests
+// ============================================================================
+
+#[cfg(test)]
+mod export_tests {
+    // Test that all types are accessible from crate root
+    use crate::{
+        verify_consistency_to_origin, verify_cross_receipts, verify_super_inclusion,
+        AnchorVerificationContext, CrossReceiptVerificationResult, ReceiptTier, SuperProof,
+        SuperVerificationResult, ANCHOR_TARGET_DATA_TREE_ROOT, ANCHOR_TARGET_SUPER_ROOT,
+    };
+
+    #[test]
+    fn test_super_proof_accessible() {
+        let _: fn() -> SuperProof = || SuperProof {
+            genesis_super_root: String::new(),
+            data_tree_index: 0,
+            super_tree_size: 1,
+            super_root: String::new(),
+            inclusion: vec![],
+            consistency_to_origin: vec![],
+        };
+    }
+
+    #[test]
+    fn test_receipt_tier_accessible() {
+        let tier = ReceiptTier::Full;
+        assert_eq!(tier.name(), "Receipt-Full");
+    }
+
+    #[test]
+    fn test_anchor_targets_accessible() {
+        assert_eq!(ANCHOR_TARGET_DATA_TREE_ROOT, "data_tree_root");
+        assert_eq!(ANCHOR_TARGET_SUPER_ROOT, "super_root");
+    }
+
+    #[test]
+    fn test_verification_context_accessible() {
+        let ctx = AnchorVerificationContext::new([0u8; 32], [0u8; 32]);
+        assert!(ctx.expected_hash_for_target("data_tree_root").is_some());
+        assert!(ctx.expected_hash_for_target("super_root").is_some());
+    }
+
+    #[test]
+    fn test_super_verification_result_fields_non_option() {
+        // Verify SuperVerificationResult fields are concrete types
+        let result = SuperVerificationResult::valid([0u8; 32], [0u8; 32]);
+        let _: bool = result.inclusion_valid;
+        let _: bool = result.consistency_valid;
+        let _: [u8; 32] = result.genesis_super_root;
+        let _: [u8; 32] = result.super_root;
+    }
+
+    #[test]
+    fn test_verify_functions_accessible() {
+        // Just check that functions are accessible
+        let _ = verify_super_inclusion;
+        let _ = verify_consistency_to_origin;
+        let _ = verify_cross_receipts;
+    }
+
+    #[test]
+    fn test_cross_receipt_result_accessible() {
+        let result = CrossReceiptVerificationResult {
+            same_log_instance: true,
+            history_consistent: true,
+            genesis_super_root: [0u8; 32],
+            receipt_a_index: 5,
+            receipt_b_index: 10,
+            receipt_a_super_tree_size: 10,
+            receipt_b_super_tree_size: 15,
+            errors: vec![],
+        };
+        assert!(result.is_valid());
+    }
+}
+
+#[cfg(test)]
+mod prelude_tests {
+    use crate::prelude::*;
+
+    #[test]
+    fn test_prelude_includes_super_types() {
+        // These should compile if prelude exports are correct
+        let tier = ReceiptTier::Lite;
+        let _ = tier;
+        let proof_fn: fn() -> SuperProof = || SuperProof {
+            genesis_super_root: String::new(),
+            data_tree_index: 0,
+            super_tree_size: 1,
+            super_root: String::new(),
+            inclusion: vec![],
+            consistency_to_origin: vec![],
+        };
+        let _ = proof_fn;
+    }
+
+    #[test]
+    fn test_prelude_includes_cross_receipt_result() {
+        let result = CrossReceiptVerificationResult {
+            same_log_instance: true,
+            history_consistent: true,
+            genesis_super_root: [0u8; 32],
+            receipt_a_index: 5,
+            receipt_b_index: 10,
+            receipt_a_super_tree_size: 10,
+            receipt_b_super_tree_size: 15,
+            errors: vec![],
+        };
+        assert!(result.is_valid());
+    }
+
+    #[test]
+    fn test_prelude_includes_verification_functions() {
+        // Just check that functions are accessible from prelude
+        let _ = verify_super_inclusion;
+        let _ = verify_consistency_to_origin;
+        let _ = verify_cross_receipts;
+    }
+}
