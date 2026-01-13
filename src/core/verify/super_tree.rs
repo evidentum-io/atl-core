@@ -215,7 +215,7 @@ pub fn verify_consistency_to_origin(super_proof: &SuperProof) -> AtlResult<bool>
 /// Constant-time equality comparison for hashes
 ///
 /// Prevents timing attacks by comparing hashes in constant time.
-fn use_constant_time_eq(a: &Hash, b: &Hash) -> bool {
+pub(crate) fn use_constant_time_eq(a: &Hash, b: &Hash) -> bool {
     use subtle::ConstantTimeEq;
     a.ct_eq(b).into()
 }
@@ -273,6 +273,217 @@ impl SuperVerificationResult {
     pub const fn is_valid(&self) -> bool {
         self.inclusion_valid && self.consistency_valid
     }
+}
+
+/// Result of cross-receipt verification
+///
+/// Indicates whether two receipts belong to the same consistent log history.
+/// All fields are concrete types - no Options because `super_proof` is mandatory.
+#[derive(Debug, Clone)]
+pub struct CrossReceiptVerificationResult {
+    /// Whether both receipts are from the same log instance
+    pub same_log_instance: bool,
+
+    /// Whether the log history between receipts was not modified
+    pub history_consistent: bool,
+
+    /// Genesis super root shared by both receipts
+    pub genesis_super_root: Hash,
+
+    /// Data Tree index of receipt A
+    pub receipt_a_index: u64,
+
+    /// Data Tree index of receipt B
+    pub receipt_b_index: u64,
+
+    /// Super-Tree size of receipt A
+    pub receipt_a_super_tree_size: u64,
+
+    /// Super-Tree size of receipt B
+    pub receipt_b_super_tree_size: u64,
+
+    /// Errors encountered during verification
+    pub errors: Vec<String>,
+}
+
+impl CrossReceiptVerificationResult {
+    /// Check if cross-verification succeeded
+    #[must_use]
+    pub const fn is_valid(&self) -> bool {
+        self.same_log_instance && self.history_consistent
+    }
+
+    /// Get which receipt is earlier (by `data_tree_index`)
+    ///
+    /// Returns `Ordering`:
+    /// - `Less`: Receipt A is earlier
+    /// - `Greater`: Receipt A is later
+    /// - `Equal`: Same Data Tree (possibly different entries)
+    #[must_use]
+    pub fn ordering(&self) -> std::cmp::Ordering {
+        self.receipt_a_index.cmp(&self.receipt_b_index)
+    }
+
+    /// Get the earlier receipt's index
+    #[must_use]
+    pub const fn earlier_index(&self) -> u64 {
+        if self.receipt_a_index <= self.receipt_b_index {
+            self.receipt_a_index
+        } else {
+            self.receipt_b_index
+        }
+    }
+
+    /// Get the later receipt's index
+    #[must_use]
+    pub const fn later_index(&self) -> u64 {
+        if self.receipt_a_index >= self.receipt_b_index {
+            self.receipt_a_index
+        } else {
+            self.receipt_b_index
+        }
+    }
+}
+
+/// Verify that two receipts belong to the same consistent log history
+///
+/// Per ATL Protocol v2.0 Section 5.4.3, cross-receipt verification:
+/// 1. Both receipts MUST have `super_proof` (mandatory in v2.0)
+/// 2. Verify that `A.super_proof.genesis_super_root == B.super_proof.genesis_super_root`
+/// 3. Verify `consistency_to_origin` for both receipts
+/// 4. If both pass, the log history between them was not modified.
+///
+/// **No server access required. Only the two receipts are needed.**
+///
+/// # Arguments
+///
+/// * `receipt_a` - First receipt (v2.0 with mandatory `super_proof`)
+/// * `receipt_b` - Second receipt (v2.0 with mandatory `super_proof`)
+///
+/// # Returns
+///
+/// * `CrossReceiptVerificationResult` with detailed status
+///
+/// # Trust Model
+///
+/// This function verifies that:
+/// 1. Both receipts claim the same log origin (`genesis_super_root`)
+/// 2. Both receipts have valid consistency proofs to that origin
+///
+/// This DOES NOT verify:
+/// - Individual receipt validity (signature, inclusion) - use `verify_receipt()` for that
+/// - Anchor timestamps (TSA, OTS) - use `verify_receipt()` for that
+///
+/// For full trust, call `verify_receipt()` on both receipts first, then call this function.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use atl_core::{verify_receipt, verify_cross_receipts};
+///
+/// // First, verify each receipt independently
+/// let result_a = verify_receipt(&receipt_a, &trusted_key)?;
+/// let result_b = verify_receipt(&receipt_b, &trusted_key)?;
+///
+/// if !result_a.is_valid || !result_b.is_valid {
+///     println!("One or both receipts are invalid");
+///     return;
+/// }
+///
+/// // Then verify cross-receipt consistency
+/// let cross_result = verify_cross_receipts(&receipt_a, &receipt_b);
+///
+/// if cross_result.is_valid() {
+///     println!("Receipts are from the same consistent log");
+///     println!("Earlier receipt at index: {}", cross_result.earlier_index());
+///     println!("Later receipt at index: {}", cross_result.later_index());
+/// } else {
+///     println!("Receipts may be from different logs or inconsistent history");
+///     for error in &cross_result.errors {
+///         println!("  Error: {}", error);
+///     }
+/// }
+/// ```
+#[must_use]
+pub fn verify_cross_receipts(
+    receipt_a: &crate::core::receipt::Receipt,
+    receipt_b: &crate::core::receipt::Receipt,
+) -> CrossReceiptVerificationResult {
+    let mut result = CrossReceiptVerificationResult {
+        same_log_instance: false,
+        history_consistent: false,
+        genesis_super_root: [0; 32],
+        receipt_a_index: 0,
+        receipt_b_index: 0,
+        receipt_a_super_tree_size: 0,
+        receipt_b_super_tree_size: 0,
+        errors: vec![],
+    };
+
+    // super_proof is mandatory in v2.0, so we can access it directly
+    let super_proof_a = &receipt_a.super_proof;
+    let super_proof_b = &receipt_b.super_proof;
+
+    // Record data tree indexes and sizes
+    result.receipt_a_index = super_proof_a.data_tree_index;
+    result.receipt_b_index = super_proof_b.data_tree_index;
+    result.receipt_a_super_tree_size = super_proof_a.super_tree_size;
+    result.receipt_b_super_tree_size = super_proof_b.super_tree_size;
+
+    // Parse genesis_super_root from both receipts
+    let genesis_a = match super_proof_a.genesis_super_root_bytes() {
+        Ok(h) => h,
+        Err(e) => {
+            result.errors.push(format!("Receipt A genesis_super_root invalid: {e}"));
+            return result;
+        }
+    };
+
+    let genesis_b = match super_proof_b.genesis_super_root_bytes() {
+        Ok(h) => h,
+        Err(e) => {
+            result.errors.push(format!("Receipt B genesis_super_root invalid: {e}"));
+            return result;
+        }
+    };
+
+    // Check if same log instance (same genesis)
+    if use_constant_time_eq(&genesis_a, &genesis_b) {
+        result.same_log_instance = true;
+        result.genesis_super_root = genesis_a;
+    } else {
+        result.errors.push(format!(
+            "Different genesis_super_root: A={}, B={}",
+            hex::encode(genesis_a),
+            hex::encode(genesis_b)
+        ));
+        return result;
+    }
+
+    // Verify consistency_to_origin for both receipts
+    let consistency_a = verify_consistency_to_origin(super_proof_a);
+    let consistency_b = verify_consistency_to_origin(super_proof_b);
+
+    match (consistency_a, consistency_b) {
+        (Ok(true), Ok(true)) => {
+            // Both are consistent with genesis
+            result.history_consistent = true;
+        }
+        (Ok(false), _) => {
+            result.errors.push("Receipt A consistency_to_origin verification failed".to_string());
+        }
+        (_, Ok(false)) => {
+            result.errors.push("Receipt B consistency_to_origin verification failed".to_string());
+        }
+        (Err(e), _) => {
+            result.errors.push(format!("Receipt A consistency_to_origin error: {e}"));
+        }
+        (_, Err(e)) => {
+            result.errors.push(format!("Receipt B consistency_to_origin error: {e}"));
+        }
+    }
+
+    result
 }
 
 #[cfg(test)]
@@ -603,5 +814,177 @@ mod consistency_tests {
         let result = verify_consistency_to_origin(&super_proof);
         assert!(result.is_ok());
         assert!(result.unwrap());
+    }
+}
+
+#[cfg(test)]
+mod cross_receipt_tests {
+    use super::*;
+    use crate::core::checkpoint::CheckpointJson;
+    use crate::core::receipt::{Receipt, ReceiptEntry, ReceiptProof, SuperProof};
+    use uuid::Uuid;
+
+    fn make_test_hash(byte: u8) -> String {
+        format!("sha256:{}", hex::encode([byte; 32]))
+    }
+
+    fn make_v2_receipt_with_super_proof(genesis: u8, index: u64, size: u64) -> Receipt {
+        Receipt {
+            spec_version: "2.0.0".to_string(),
+            upgrade_url: None,
+            entry: ReceiptEntry {
+                id: Uuid::nil(),
+                payload_hash: make_test_hash(0xcc),
+                metadata: serde_json::json!({}),
+            },
+            proof: ReceiptProof {
+                tree_size: 1,
+                root_hash: make_test_hash(genesis),
+                inclusion_path: vec![],
+                leaf_index: 0,
+                checkpoint: CheckpointJson {
+                    origin: make_test_hash(0xdd),
+                    tree_size: 1,
+                    root_hash: make_test_hash(genesis),
+                    timestamp: 1_704_067_200_000_000_000,
+                    signature: "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_string(),
+                    key_id: make_test_hash(0xee),
+                },
+                consistency_proof: None,
+            },
+            super_proof: SuperProof {
+                genesis_super_root: make_test_hash(genesis),
+                data_tree_index: index,
+                super_tree_size: size,
+                super_root: make_test_hash(genesis), // Simplified for size 1
+                inclusion: vec![],
+                consistency_to_origin: vec![],
+            },
+            anchors: vec![],
+        }
+    }
+
+    #[test]
+    fn test_cross_receipt_same_log() {
+        // Two receipts from same log (same genesis)
+        let receipt_a = make_v2_receipt_with_super_proof(0xaa, 5, 10);
+        let receipt_b = make_v2_receipt_with_super_proof(0xaa, 8, 15);
+
+        let result = verify_cross_receipts(&receipt_a, &receipt_b);
+
+        assert!(result.same_log_instance);
+        assert_eq!(result.receipt_a_index, 5);
+        assert_eq!(result.receipt_b_index, 8);
+        assert_ne!(result.genesis_super_root, [0u8; 32]);
+    }
+
+    #[test]
+    fn test_cross_receipt_different_logs() {
+        // Two receipts from different logs (different genesis)
+        let receipt_a = make_v2_receipt_with_super_proof(0xaa, 5, 10);
+        let receipt_b = make_v2_receipt_with_super_proof(0xbb, 5, 10); // Different genesis!
+
+        let result = verify_cross_receipts(&receipt_a, &receipt_b);
+
+        assert!(!result.same_log_instance);
+        assert!(!result.is_valid());
+        assert!(!result.errors.is_empty());
+        assert!(result.errors[0].contains("Different genesis_super_root"));
+    }
+
+    #[test]
+    fn test_cross_receipt_ordering_a_earlier() {
+        let receipt_a = make_v2_receipt_with_super_proof(0xaa, 5, 10); // index 5
+        let receipt_b = make_v2_receipt_with_super_proof(0xaa, 15, 20); // index 15
+
+        let result = verify_cross_receipts(&receipt_a, &receipt_b);
+
+        assert!(result.same_log_instance);
+        assert_eq!(result.ordering(), std::cmp::Ordering::Less); // A < B
+        assert_eq!(result.earlier_index(), 5);
+        assert_eq!(result.later_index(), 15);
+    }
+
+    #[test]
+    fn test_cross_receipt_ordering_b_earlier() {
+        let receipt_a = make_v2_receipt_with_super_proof(0xaa, 15, 20); // index 15
+        let receipt_b = make_v2_receipt_with_super_proof(0xaa, 5, 10); // index 5
+
+        let result = verify_cross_receipts(&receipt_a, &receipt_b);
+
+        assert!(result.same_log_instance);
+        assert_eq!(result.ordering(), std::cmp::Ordering::Greater); // A > B
+        assert_eq!(result.earlier_index(), 5);
+        assert_eq!(result.later_index(), 15);
+    }
+
+    #[test]
+    fn test_cross_receipt_same_tree() {
+        // Two receipts from same Data Tree
+        let receipt_a = make_v2_receipt_with_super_proof(0xaa, 5, 10);
+        let receipt_b = make_v2_receipt_with_super_proof(0xaa, 5, 10); // Same index
+
+        let result = verify_cross_receipts(&receipt_a, &receipt_b);
+
+        assert!(result.same_log_instance);
+        assert_eq!(result.ordering(), std::cmp::Ordering::Equal);
+        assert_eq!(result.earlier_index(), 5);
+        assert_eq!(result.later_index(), 5);
+    }
+
+    #[test]
+    fn test_cross_receipt_invalid_genesis_format() {
+        let mut receipt_a = make_v2_receipt_with_super_proof(0xaa, 5, 10);
+        receipt_a.super_proof.genesis_super_root = "invalid".to_string();
+
+        let receipt_b = make_v2_receipt_with_super_proof(0xaa, 8, 15);
+
+        let result = verify_cross_receipts(&receipt_a, &receipt_b);
+
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.contains("Receipt A genesis_super_root invalid")));
+    }
+
+    #[test]
+    fn test_cross_receipt_result_is_valid() {
+        let mut result = CrossReceiptVerificationResult {
+            same_log_instance: true,
+            history_consistent: true,
+            genesis_super_root: [0xaa; 32],
+            receipt_a_index: 5,
+            receipt_b_index: 10,
+            receipt_a_super_tree_size: 10,
+            receipt_b_super_tree_size: 15,
+            errors: vec![],
+        };
+        assert!(result.is_valid());
+
+        result.same_log_instance = false;
+        assert!(!result.is_valid());
+
+        result.same_log_instance = true;
+        result.history_consistent = false;
+        assert!(!result.is_valid());
+    }
+
+    #[test]
+    fn test_cross_receipt_result_fields_non_option() {
+        let result = CrossReceiptVerificationResult {
+            same_log_instance: true,
+            history_consistent: true,
+            genesis_super_root: [0xaa; 32],
+            receipt_a_index: 5,
+            receipt_b_index: 10,
+            receipt_a_super_tree_size: 10,
+            receipt_b_super_tree_size: 15,
+            errors: vec![],
+        };
+
+        // All fields should be concrete types, not Option
+        let _: bool = result.same_log_instance;
+        let _: bool = result.history_consistent;
+        let _: Hash = result.genesis_super_root;
+        let _: u64 = result.receipt_a_index;
+        let _: u64 = result.receipt_b_index;
     }
 }

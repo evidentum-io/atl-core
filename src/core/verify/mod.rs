@@ -15,7 +15,8 @@ pub mod anchors;
 
 pub mod super_tree;
 pub use super_tree::{
-    verify_consistency_to_origin, verify_super_inclusion, SuperVerificationResult,
+    verify_consistency_to_origin, verify_cross_receipts, verify_super_inclusion,
+    CrossReceiptVerificationResult, SuperVerificationResult,
 };
 
 #[cfg(feature = "rfc3161-verify")]
