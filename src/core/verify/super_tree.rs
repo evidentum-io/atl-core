@@ -7,7 +7,9 @@
 //!
 //! All verification functions require valid `super_proof`.
 
-use crate::core::merkle::{verify_inclusion, Hash, InclusionProof};
+use crate::core::merkle::{
+    verify_consistency, verify_inclusion, ConsistencyProof, Hash, InclusionProof,
+};
 use crate::core::receipt::SuperProof;
 use crate::error::{AtlError, AtlResult};
 
@@ -100,6 +102,122 @@ pub fn verify_super_inclusion(data_tree_root: &Hash, super_proof: &SuperProof) -
     // Use existing Merkle inclusion verification
     // The Data Tree root is the "leaf" being verified for inclusion
     verify_inclusion(data_tree_root, &inclusion_proof, &expected_super_root)
+}
+
+/// Verify consistency to origin proof
+///
+/// Verifies that the Super-Tree at its current size is consistent with
+/// its genesis state (size 1). This enables transitive verification:
+/// two receipts with the same `genesis_super_root` that both prove
+/// consistency to origin are guaranteed to share a consistent history.
+///
+/// Per ATL Protocol v2.0 Section 5.4.2:
+/// 1. Execute the Merkle Consistency Proof verification algorithm (RFC 9162)
+/// 2. Parameters:
+///    - `from_tree_size`: 1 (genesis)
+///    - `to_tree_size`: `super_proof.super_tree_size`
+///    - `from_root_hash`: `super_proof.genesis_super_root`
+///    - `to_root_hash`: `super_proof.super_root`
+///    - `path`: `super_proof.consistency_to_origin`
+/// 3. The algorithm MUST confirm genesis state is a prefix of current state.
+///
+/// **v2.0 Only**: No fallbacks. Invalid proof = verification failure.
+///
+/// # Arguments
+///
+/// * `super_proof` - Super-Tree proof from the receipt (REQUIRED)
+///
+/// # Returns
+///
+/// * `Ok(true)` - Super-Tree is consistent with genesis
+/// * `Ok(false)` - Proof is structurally valid but consistency verification failed
+/// * `Err(...)` - Proof structure is invalid
+///
+/// # Errors
+///
+/// Returns error if:
+/// * `super_proof.super_tree_size` is 0
+/// * Hash parsing fails for `genesis_super_root` or `super_root`
+/// * Consistency proof path structure is invalid
+///
+/// # Special Case: Genesis Tree
+///
+/// When `super_tree_size == 1`:
+/// - `genesis_super_root` MUST equal `super_root`
+/// - `consistency_to_origin` MUST be empty
+/// - This is the degenerate case where the Super-Tree contains only one Data Tree
+///
+/// # Example
+///
+/// ```
+/// use atl_core::core::verify::super_tree::verify_consistency_to_origin;
+/// use atl_core::core::receipt::SuperProof;
+///
+/// // Genesis case: single Data Tree
+/// let super_proof = SuperProof {
+///     genesis_super_root: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+///     data_tree_index: 0,
+///     super_tree_size: 1,
+///     super_root: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+///     inclusion: vec![],
+///     consistency_to_origin: vec![],
+/// };
+///
+/// let result = verify_consistency_to_origin(&super_proof);
+/// assert!(result.is_ok());
+/// assert!(result.unwrap());
+/// ```
+pub fn verify_consistency_to_origin(super_proof: &SuperProof) -> AtlResult<bool> {
+    // Validate super_tree_size
+    if super_proof.super_tree_size == 0 {
+        return Err(AtlError::InvalidTreeSize {
+            size: 0,
+            reason: "super_tree_size cannot be zero",
+        });
+    }
+
+    // Parse hashes
+    let genesis_super_root = super_proof.genesis_super_root_bytes()?;
+    let super_root = super_proof.super_root_bytes()?;
+
+    // Special case: genesis tree (size 1)
+    // Consistency proof from size 1 to size 1 is trivial:
+    // genesis_super_root must equal super_root, and path must be empty
+    if super_proof.super_tree_size == 1 {
+        // For size 1, there's no consistency proof needed
+        // Just verify genesis_super_root == super_root
+        if super_proof.consistency_to_origin.is_empty() {
+            return Ok(use_constant_time_eq(&genesis_super_root, &super_root));
+        }
+        // Non-empty path for size 1 is structurally invalid
+        return Err(AtlError::InvalidProofStructure {
+            reason: format!(
+                "consistency_to_origin must be empty for super_tree_size 1, got {} hashes",
+                super_proof.consistency_to_origin.len()
+            ),
+        });
+    }
+
+    // Parse consistency path
+    let consistency_path = super_proof.consistency_to_origin_bytes()?;
+
+    // Build ConsistencyProof for Merkle verification
+    let consistency_proof = ConsistencyProof {
+        from_size: 1, // Genesis
+        to_size: super_proof.super_tree_size,
+        path: consistency_path,
+    };
+
+    // Use existing Merkle consistency verification
+    verify_consistency(&consistency_proof, &genesis_super_root, &super_root)
+}
+
+/// Constant-time equality comparison for hashes
+///
+/// Prevents timing attacks by comparing hashes in constant time.
+fn use_constant_time_eq(a: &Hash, b: &Hash) -> bool {
+    use subtle::ConstantTimeEq;
+    a.ct_eq(b).into()
 }
 
 /// Result of Super-Tree verification
@@ -317,5 +435,173 @@ mod tests {
         assert!(!result.inclusion_valid);
         assert!(!result.consistency_valid);
         assert_eq!(result.errors.len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod consistency_tests {
+    use super::*;
+    use crate::core::merkle::hash_children;
+
+    fn make_test_hash(byte: u8) -> String {
+        format!("sha256:{}", hex::encode([byte; 32]))
+    }
+
+    fn hash_from_byte(byte: u8) -> Hash {
+        [byte; 32]
+    }
+
+    #[test]
+    fn test_verify_consistency_genesis_tree() {
+        // Super-Tree with single Data Tree: genesis_super_root == super_root
+        let super_proof = SuperProof {
+            genesis_super_root: make_test_hash(0xaa),
+            data_tree_index: 0,
+            super_tree_size: 1,
+            super_root: make_test_hash(0xaa), // Same as genesis
+            inclusion: vec![],
+            consistency_to_origin: vec![], // Must be empty
+        };
+
+        let result = verify_consistency_to_origin(&super_proof);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    #[test]
+    fn test_verify_consistency_genesis_mismatch() {
+        // Genesis tree but genesis_super_root != super_root
+        let super_proof = SuperProof {
+            genesis_super_root: make_test_hash(0xaa),
+            data_tree_index: 0,
+            super_tree_size: 1,
+            super_root: make_test_hash(0xbb), // Different!
+            inclusion: vec![],
+            consistency_to_origin: vec![],
+        };
+
+        let result = verify_consistency_to_origin(&super_proof);
+        assert!(result.is_ok());
+        assert!(!result.unwrap()); // Valid structure, wrong hash
+    }
+
+    #[test]
+    fn test_verify_consistency_genesis_nonempty_path_error() {
+        // Genesis tree but consistency_to_origin is not empty
+        let super_proof = SuperProof {
+            genesis_super_root: make_test_hash(0xaa),
+            data_tree_index: 0,
+            super_tree_size: 1,
+            super_root: make_test_hash(0xaa),
+            inclusion: vec![],
+            consistency_to_origin: vec![make_test_hash(0xcc)], // Should be empty!
+        };
+
+        let result = verify_consistency_to_origin(&super_proof);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), AtlError::InvalidProofStructure { .. }));
+    }
+
+    #[test]
+    fn test_verify_consistency_two_trees() {
+        // Super-Tree grew from 1 to 2
+        // Leaves: [R0, R1], Root at size 2 = H(R0 || R1)
+        let r0 = hash_from_byte(0xaa);
+        let r1 = hash_from_byte(0xbb);
+        let super_root_2 = hash_children(&r0, &r1);
+
+        // Consistency proof from size 1 (root = R0) to size 2 (root = H(R0||R1))
+        let super_proof = SuperProof {
+            genesis_super_root: make_test_hash(0xaa), // R0
+            data_tree_index: 1,
+            super_tree_size: 2,
+            super_root: format!("sha256:{}", hex::encode(super_root_2)),
+            inclusion: vec![],
+            consistency_to_origin: vec![make_test_hash(0xbb)], // [R1]
+        };
+
+        let result = verify_consistency_to_origin(&super_proof);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    #[test]
+    fn test_verify_consistency_wrong_path_returns_false() {
+        // Super-Tree grew from 1 to 2, but wrong consistency path
+        let r0 = hash_from_byte(0xaa);
+        let r1 = hash_from_byte(0xbb);
+        let super_root_2 = hash_children(&r0, &r1);
+
+        let super_proof = SuperProof {
+            genesis_super_root: make_test_hash(0xaa),
+            data_tree_index: 1,
+            super_tree_size: 2,
+            super_root: format!("sha256:{}", hex::encode(super_root_2)),
+            inclusion: vec![],
+            consistency_to_origin: vec![make_test_hash(0xff)], // Wrong sibling!
+        };
+
+        let result = verify_consistency_to_origin(&super_proof);
+        assert!(result.is_ok());
+        assert!(!result.unwrap()); // Valid structure, wrong proof
+    }
+
+    #[test]
+    fn test_verify_consistency_zero_size_error() {
+        let super_proof = SuperProof {
+            genesis_super_root: make_test_hash(0xaa),
+            data_tree_index: 0,
+            super_tree_size: 0, // Invalid
+            super_root: make_test_hash(0xaa),
+            inclusion: vec![],
+            consistency_to_origin: vec![],
+        };
+
+        let result = verify_consistency_to_origin(&super_proof);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), AtlError::InvalidTreeSize { .. }));
+    }
+
+    #[test]
+    fn test_verify_consistency_invalid_hash_error() {
+        let super_proof = SuperProof {
+            genesis_super_root: "invalid".to_string(), // Bad format
+            data_tree_index: 0,
+            super_tree_size: 2,
+            super_root: make_test_hash(0xbb),
+            inclusion: vec![],
+            consistency_to_origin: vec![make_test_hash(0xcc)],
+        };
+
+        let result = verify_consistency_to_origin(&super_proof);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), AtlError::InvalidHash(_)));
+    }
+
+    #[test]
+    fn test_verify_consistency_three_trees() {
+        // Super-Tree grew from 1 to 3
+        let r0 = hash_from_byte(0xaa);
+        let r1 = hash_from_byte(0xbb);
+        let r2 = hash_from_byte(0xcc);
+        let h01 = hash_children(&r0, &r1);
+        let super_root_3 = hash_children(&h01, &r2);
+
+        // Consistency from 1 to 3: [R1, R2]
+        let super_proof = SuperProof {
+            genesis_super_root: make_test_hash(0xaa), // R0
+            data_tree_index: 2,
+            super_tree_size: 3,
+            super_root: format!("sha256:{}", hex::encode(super_root_3)),
+            inclusion: vec![],
+            consistency_to_origin: vec![
+                make_test_hash(0xbb), // R1
+                make_test_hash(0xcc), // R2
+            ],
+        };
+
+        let result = verify_consistency_to_origin(&super_proof);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
     }
 }
