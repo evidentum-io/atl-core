@@ -1425,40 +1425,75 @@ mod receipt_v2_tests {
 mod super_proof_tests {
     use super::*;
 
-    fn make_test_hash(byte: u8) -> String {
+    fn make_hash(byte: u8) -> String {
         format!("sha256:{}", hex::encode([byte; 32]))
     }
 
+    // === Serialization Tests ===
+
     #[test]
-    fn test_super_proof_serialization() {
+    fn test_super_proof_json_roundtrip() {
         let proof = SuperProof {
-            genesis_super_root: make_test_hash(0xaa),
-            data_tree_index: 5,
-            super_tree_size: 10,
-            super_root: make_test_hash(0xbb),
-            inclusion: vec![make_test_hash(0xcc), make_test_hash(0xdd)],
-            consistency_to_origin: vec![make_test_hash(0xee)],
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 42,
+            super_tree_size: 100,
+            super_root: make_hash(0xbb),
+            inclusion: vec![make_hash(0xcc), make_hash(0xdd)],
+            consistency_to_origin: vec![make_hash(0xee)],
         };
 
         let json = serde_json::to_string(&proof).unwrap();
+        let restored: SuperProof = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(proof, restored);
+    }
+
+    #[test]
+    fn test_super_proof_json_field_names() {
+        let proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 5,
+            super_tree_size: 10,
+            super_root: make_hash(0xbb),
+            inclusion: vec![],
+            consistency_to_origin: vec![],
+        };
+
+        let json = serde_json::to_string(&proof).unwrap();
+
         assert!(json.contains("\"genesis_super_root\""));
         assert!(json.contains("\"data_tree_index\""));
         assert!(json.contains("\"super_tree_size\""));
         assert!(json.contains("\"super_root\""));
         assert!(json.contains("\"inclusion\""));
         assert!(json.contains("\"consistency_to_origin\""));
-
-        let restored: SuperProof = serde_json::from_str(&json).unwrap();
-        assert_eq!(proof, restored);
     }
 
     #[test]
-    fn test_genesis_super_root_bytes() {
+    fn test_super_proof_empty_paths() {
         let proof = SuperProof {
-            genesis_super_root: make_test_hash(0xaa),
+            genesis_super_root: make_hash(0xaa),
             data_tree_index: 0,
             super_tree_size: 1,
-            super_root: make_test_hash(0xaa),
+            super_root: make_hash(0xaa),
+            inclusion: vec![],
+            consistency_to_origin: vec![],
+        };
+
+        let json = serde_json::to_string(&proof).unwrap();
+        assert!(json.contains("\"inclusion\":[]"));
+        assert!(json.contains("\"consistency_to_origin\":[]"));
+    }
+
+    // === Helper Method Tests ===
+
+    #[test]
+    fn test_genesis_super_root_bytes_valid() {
+        let proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 0,
+            super_tree_size: 1,
+            super_root: make_hash(0xaa),
             inclusion: vec![],
             consistency_to_origin: vec![],
         };
@@ -1468,12 +1503,54 @@ mod super_proof_tests {
     }
 
     #[test]
-    fn test_super_root_bytes() {
+    fn test_genesis_super_root_bytes_invalid_prefix() {
         let proof = SuperProof {
-            genesis_super_root: make_test_hash(0xaa),
+            genesis_super_root: "md5:aabbccdd".to_string(),
+            data_tree_index: 0,
+            super_tree_size: 1,
+            super_root: make_hash(0xaa),
+            inclusion: vec![],
+            consistency_to_origin: vec![],
+        };
+
+        assert!(proof.genesis_super_root_bytes().is_err());
+    }
+
+    #[test]
+    fn test_genesis_super_root_bytes_invalid_hex() {
+        let proof = SuperProof {
+            genesis_super_root: "sha256:not_hex".to_string(),
+            data_tree_index: 0,
+            super_tree_size: 1,
+            super_root: make_hash(0xaa),
+            inclusion: vec![],
+            consistency_to_origin: vec![],
+        };
+
+        assert!(proof.genesis_super_root_bytes().is_err());
+    }
+
+    #[test]
+    fn test_genesis_super_root_bytes_wrong_length() {
+        let proof = SuperProof {
+            genesis_super_root: "sha256:aabbcc".to_string(),
+            data_tree_index: 0,
+            super_tree_size: 1,
+            super_root: make_hash(0xaa),
+            inclusion: vec![],
+            consistency_to_origin: vec![],
+        };
+
+        assert!(proof.genesis_super_root_bytes().is_err());
+    }
+
+    #[test]
+    fn test_super_root_bytes_valid() {
+        let proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
             data_tree_index: 5,
             super_tree_size: 10,
-            super_root: make_test_hash(0xbb),
+            super_root: make_hash(0xbb),
             inclusion: vec![],
             consistency_to_origin: vec![],
         };
@@ -1483,89 +1560,114 @@ mod super_proof_tests {
     }
 
     #[test]
-    fn test_inclusion_path_bytes() {
+    fn test_inclusion_path_bytes_valid() {
         let proof = SuperProof {
-            genesis_super_root: make_test_hash(0xaa),
+            genesis_super_root: make_hash(0xaa),
             data_tree_index: 5,
             super_tree_size: 10,
-            super_root: make_test_hash(0xbb),
-            inclusion: vec![make_test_hash(0xcc), make_test_hash(0xdd)],
+            super_root: make_hash(0xbb),
+            inclusion: vec![make_hash(0xcc), make_hash(0xdd), make_hash(0xee)],
             consistency_to_origin: vec![],
         };
 
         let path = proof.inclusion_path_bytes().unwrap();
-        assert_eq!(path.len(), 2);
+        assert_eq!(path.len(), 3);
         assert_eq!(path[0], [0xcc; 32]);
         assert_eq!(path[1], [0xdd; 32]);
+        assert_eq!(path[2], [0xee; 32]);
     }
 
     #[test]
-    fn test_consistency_to_origin_bytes() {
+    fn test_inclusion_path_bytes_with_invalid_element() {
         let proof = SuperProof {
-            genesis_super_root: make_test_hash(0xaa),
+            genesis_super_root: make_hash(0xaa),
             data_tree_index: 5,
             super_tree_size: 10,
-            super_root: make_test_hash(0xbb),
+            super_root: make_hash(0xbb),
+            inclusion: vec![make_hash(0xcc), "invalid".to_string()],
+            consistency_to_origin: vec![],
+        };
+
+        assert!(proof.inclusion_path_bytes().is_err());
+    }
+
+    #[test]
+    fn test_consistency_to_origin_bytes_valid() {
+        let proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 5,
+            super_tree_size: 10,
+            super_root: make_hash(0xbb),
             inclusion: vec![],
-            consistency_to_origin: vec![make_test_hash(0xee), make_test_hash(0xff)],
+            consistency_to_origin: vec![make_hash(0xff)],
         };
 
         let path = proof.consistency_to_origin_bytes().unwrap();
-        assert_eq!(path.len(), 2);
-        assert_eq!(path[0], [0xee; 32]);
-        assert_eq!(path[1], [0xff; 32]);
+        assert_eq!(path.len(), 1);
+        assert_eq!(path[0], [0xff; 32]);
     }
 
     #[test]
-    fn test_is_genesis() {
-        let genesis_proof = SuperProof {
-            genesis_super_root: make_test_hash(0xaa),
+    fn test_is_genesis_true() {
+        let proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
             data_tree_index: 0,
             super_tree_size: 1,
-            super_root: make_test_hash(0xaa),
+            super_root: make_hash(0xaa),
             inclusion: vec![],
             consistency_to_origin: vec![],
         };
-        assert!(genesis_proof.is_genesis());
 
-        let non_genesis_proof = SuperProof {
-            genesis_super_root: make_test_hash(0xaa),
+        assert!(proof.is_genesis());
+    }
+
+    #[test]
+    fn test_is_genesis_false() {
+        let proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
             data_tree_index: 5,
             super_tree_size: 10,
-            super_root: make_test_hash(0xbb),
+            super_root: make_hash(0xbb),
             inclusion: vec![],
             consistency_to_origin: vec![],
         };
-        assert!(!non_genesis_proof.is_genesis());
+
+        assert!(!proof.is_genesis());
+    }
+
+    // === Equality Tests ===
+
+    #[test]
+    fn test_super_proof_equality() {
+        let proof1 = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 5,
+            super_tree_size: 10,
+            super_root: make_hash(0xbb),
+            inclusion: vec![make_hash(0xcc)],
+            consistency_to_origin: vec![make_hash(0xdd)],
+        };
+        let proof2 = proof1.clone();
+
+        assert_eq!(proof1, proof2);
     }
 
     #[test]
-    fn test_invalid_hash_format() {
-        let proof = SuperProof {
-            genesis_super_root: "invalid".to_string(),
-            data_tree_index: 0,
-            super_tree_size: 1,
-            super_root: make_test_hash(0xaa),
+    fn test_super_proof_inequality() {
+        let proof1 = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 5,
+            super_tree_size: 10,
+            super_root: make_hash(0xbb),
             inclusion: vec![],
             consistency_to_origin: vec![],
         };
-
-        assert!(proof.genesis_super_root_bytes().is_err());
-    }
-
-    #[test]
-    fn test_empty_paths() {
-        let proof = SuperProof {
-            genesis_super_root: make_test_hash(0xaa),
-            data_tree_index: 0,
-            super_tree_size: 1,
-            super_root: make_test_hash(0xaa),
-            inclusion: vec![],
-            consistency_to_origin: vec![],
+        let proof2 = SuperProof {
+            genesis_super_root: make_hash(0xff), // Different!
+            ..proof1.clone()
         };
 
-        assert!(proof.inclusion_path_bytes().unwrap().is_empty());
-        assert!(proof.consistency_to_origin_bytes().unwrap().is_empty());
+        assert_ne!(proof1, proof2);
     }
 }
 
@@ -1683,5 +1785,202 @@ mod anchor_target_tests {
     fn test_target_constants() {
         assert_eq!(ANCHOR_TARGET_DATA_TREE_ROOT, "data_tree_root");
         assert_eq!(ANCHOR_TARGET_SUPER_ROOT, "super_root");
+    }
+
+    // === Missing Target Field Tests ===
+
+    #[test]
+    fn test_rfc3161_missing_target_fails_parse() {
+        // JSON without target fields - MUST FAIL to parse
+        let json = r#"{
+            "type": "rfc3161",
+            "tsa_url": "https://freetsa.org/tsr",
+            "timestamp": "2026-01-13T12:00:00Z",
+            "token_der": "base64:AAAA"
+        }"#;
+
+        let result: Result<ReceiptAnchor, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "Anchor JSON without target fields MUST fail to parse");
+    }
+
+    #[test]
+    fn test_bitcoin_ots_missing_target_fails_parse() {
+        // JSON without target fields - MUST FAIL
+        let json = r#"{
+            "type": "bitcoin_ots",
+            "timestamp": "2026-01-13T12:00:00Z",
+            "bitcoin_block_height": 900000,
+            "bitcoin_block_time": "2026-01-13T11:30:00Z",
+            "ots_proof": "base64:BBBB"
+        }"#;
+
+        let result: Result<ReceiptAnchor, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "Anchor JSON without target fields MUST fail to parse");
+    }
+
+    #[test]
+    fn test_anchor_roundtrip() {
+        let anchor = ReceiptAnchor::Rfc3161 {
+            target: "data_tree_root".to_string(),
+            target_hash: make_test_hash(0xaa),
+            tsa_url: "https://freetsa.org/tsr".to_string(),
+            timestamp: "2026-01-13T12:00:00Z".to_string(),
+            token_der: "base64:AAAA".to_string(),
+        };
+
+        let json = serde_json::to_string(&anchor).unwrap();
+        let restored: ReceiptAnchor = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(anchor.target(), restored.target());
+        assert_eq!(anchor.target_hash(), restored.target_hash());
+    }
+}
+
+#[cfg(test)]
+mod receipt_tier_tests {
+    use super::*;
+
+    #[test]
+    fn test_tier_names() {
+        assert_eq!(ReceiptTier::Lite.name(), "Receipt-Lite");
+        assert_eq!(ReceiptTier::Tsa.name(), "Receipt-TSA");
+        assert_eq!(ReceiptTier::Full.name(), "Receipt-Full");
+    }
+
+    #[test]
+    fn test_tier_equality() {
+        assert_eq!(ReceiptTier::Full, ReceiptTier::Full);
+        assert_ne!(ReceiptTier::Lite, ReceiptTier::Full);
+    }
+
+    #[test]
+    fn test_tier_copy() {
+        let tier = ReceiptTier::Tsa;
+        let copied = tier; // Copy
+        assert_eq!(tier, copied);
+    }
+}
+
+#[cfg(test)]
+mod receipt_parsing_tests {
+    use super::*;
+
+    #[allow(dead_code)]
+    fn make_hash(byte: u8) -> String {
+        format!("sha256:{}", hex::encode([byte; 32]))
+    }
+
+    #[test]
+    fn test_receipt_without_super_proof_fails() {
+        // Receipt JSON without super_proof field - MUST FAIL
+        let json = r#"{
+            "spec_version": "2.0.0",
+            "entry": {
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "metadata": {}
+            },
+            "proof": {
+                "tree_size": 10,
+                "root_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "inclusion_path": [],
+                "leaf_index": 5,
+                "checkpoint": {
+                    "origin": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                    "tree_size": 10,
+                    "root_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "timestamp": 1704067200000000000,
+                    "signature": "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                    "key_id": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+                }
+            },
+            "anchors": []
+        }"#;
+
+        let result = Receipt::from_json(json);
+        assert!(result.is_err(), "Receipt without super_proof MUST fail to parse");
+    }
+
+    #[test]
+    fn test_missing_super_proof_error_message() {
+        // Explicitly test that missing super_proof causes parse error
+        let json = r#"{
+            "spec_version": "2.0.0",
+            "entry": {
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "metadata": {}
+            },
+            "proof": {
+                "tree_size": 1,
+                "root_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "inclusion_path": [],
+                "leaf_index": 0,
+                "checkpoint": {
+                    "origin": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                    "tree_size": 1,
+                    "root_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "timestamp": 1704067200000000000,
+                    "signature": "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                    "key_id": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+                }
+            },
+            "anchors": []
+        }"#;
+
+        let result = Receipt::from_json(json);
+
+        // MUST fail - super_proof is mandatory
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert!(
+            error.to_string().contains("super_proof")
+                || error.to_string().contains("missing field"),
+            "Error should mention missing super_proof"
+        );
+    }
+
+    #[test]
+    fn test_missing_target_in_anchor_is_error() {
+        // Receipt with anchor missing target field - MUST FAIL
+        let json = r#"{
+            "spec_version": "2.0.0",
+            "entry": {
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "metadata": {}
+            },
+            "proof": {
+                "tree_size": 1,
+                "root_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "inclusion_path": [],
+                "leaf_index": 0,
+                "checkpoint": {
+                    "origin": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                    "tree_size": 1,
+                    "root_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "timestamp": 1704067200000000000,
+                    "signature": "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                    "key_id": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+                }
+            },
+            "super_proof": {
+                "genesis_super_root": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "data_tree_index": 0,
+                "super_tree_size": 1,
+                "super_root": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "inclusion": [],
+                "consistency_to_origin": []
+            },
+            "anchors": [{
+                "type": "rfc3161",
+                "tsa_url": "https://freetsa.org/tsr",
+                "timestamp": "2026-01-13T12:00:00Z",
+                "token_der": "base64:AAAA"
+            }]
+        }"#;
+
+        let result = Receipt::from_json(json);
+        assert!(result.is_err(), "Anchor without target field MUST fail to parse");
     }
 }
