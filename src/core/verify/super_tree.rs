@@ -988,3 +988,446 @@ mod cross_receipt_tests {
         let _: u64 = result.receipt_b_index;
     }
 }
+
+#[cfg(test)]
+mod super_inclusion_tests {
+    use super::*;
+    use crate::core::merkle::hash_children;
+
+    fn make_hash(byte: u8) -> String {
+        format!("sha256:{}", hex::encode([byte; 32]))
+    }
+
+    fn hash_bytes(byte: u8) -> Hash {
+        [byte; 32]
+    }
+
+    // === Valid Proof Tests ===
+
+    #[test]
+    fn test_single_tree_genesis() {
+        // Super-Tree with single Data Tree: root == leaf
+        let data_tree_root = hash_bytes(0xaa);
+
+        let super_proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 0,
+            super_tree_size: 1,
+            super_root: make_hash(0xaa),
+            inclusion: vec![],
+            consistency_to_origin: vec![],
+        };
+
+        let result = verify_super_inclusion(&data_tree_root, &super_proof);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    #[test]
+    fn test_two_trees_index_0() {
+        // Super-Tree: [R0, R1], Root = H(R0 || R1)
+        let r0 = hash_bytes(0xaa);
+        let r1 = hash_bytes(0xbb);
+        let super_root = hash_children(&r0, &r1);
+
+        let super_proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 0,
+            super_tree_size: 2,
+            super_root: format!("sha256:{}", hex::encode(super_root)),
+            inclusion: vec![make_hash(0xbb)], // Sibling R1
+            consistency_to_origin: vec![],
+        };
+
+        let result = verify_super_inclusion(&r0, &super_proof);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    #[test]
+    fn test_two_trees_index_1() {
+        let r0 = hash_bytes(0xaa);
+        let r1 = hash_bytes(0xbb);
+        let super_root = hash_children(&r0, &r1);
+
+        let super_proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 1,
+            super_tree_size: 2,
+            super_root: format!("sha256:{}", hex::encode(super_root)),
+            inclusion: vec![make_hash(0xaa)], // Sibling R0
+            consistency_to_origin: vec![],
+        };
+
+        let result = verify_super_inclusion(&r1, &super_proof);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    #[test]
+    fn test_four_trees_index_2() {
+        // Super-Tree: [R0, R1, R2, R3]
+        //         Root
+        //        /    \
+        //    H01       H23
+        //   /  \      /  \
+        //  R0  R1    R2  R3
+        let r0 = hash_bytes(0xaa);
+        let r1 = hash_bytes(0xbb);
+        let r2 = hash_bytes(0xcc);
+        let r3 = hash_bytes(0xdd);
+        let h01 = hash_children(&r0, &r1);
+        let h23 = hash_children(&r2, &r3);
+        let super_root = hash_children(&h01, &h23);
+
+        // Proof for R2 at index 2: [R3, H01]
+        let super_proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 2,
+            super_tree_size: 4,
+            super_root: format!("sha256:{}", hex::encode(super_root)),
+            inclusion: vec![
+                make_hash(0xdd),                        // R3 (sibling)
+                format!("sha256:{}", hex::encode(h01)), // H01
+            ],
+            consistency_to_origin: vec![],
+        };
+
+        let result = verify_super_inclusion(&r2, &super_proof);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    // === Invalid Proof Tests ===
+
+    #[test]
+    fn test_wrong_super_root() {
+        let data_tree_root = hash_bytes(0xaa);
+
+        let super_proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 0,
+            super_tree_size: 1,
+            super_root: make_hash(0xff), // Wrong!
+            inclusion: vec![],
+            consistency_to_origin: vec![],
+        };
+
+        let result = verify_super_inclusion(&data_tree_root, &super_proof);
+        assert!(result.is_ok());
+        assert!(!result.unwrap()); // Valid structure, wrong hash
+    }
+
+    #[test]
+    fn test_wrong_sibling() {
+        let r0 = hash_bytes(0xaa);
+        let r1 = hash_bytes(0xbb);
+        let super_root = hash_children(&r0, &r1);
+
+        let super_proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 0,
+            super_tree_size: 2,
+            super_root: format!("sha256:{}", hex::encode(super_root)),
+            inclusion: vec![make_hash(0xff)], // Wrong sibling!
+            consistency_to_origin: vec![],
+        };
+
+        let result = verify_super_inclusion(&r0, &super_proof);
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
+    }
+
+    // === Error Cases ===
+
+    #[test]
+    fn test_zero_tree_size() {
+        let data_tree_root = hash_bytes(0xaa);
+
+        let super_proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 0,
+            super_tree_size: 0, // Invalid!
+            super_root: make_hash(0xaa),
+            inclusion: vec![],
+            consistency_to_origin: vec![],
+        };
+
+        let result = verify_super_inclusion(&data_tree_root, &super_proof);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), AtlError::InvalidTreeSize { .. }));
+    }
+
+    #[test]
+    fn test_index_out_of_bounds() {
+        let data_tree_root = hash_bytes(0xaa);
+
+        let super_proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 10, // Out of bounds!
+            super_tree_size: 5,
+            super_root: make_hash(0xbb),
+            inclusion: vec![],
+            consistency_to_origin: vec![],
+        };
+
+        let result = verify_super_inclusion(&data_tree_root, &super_proof);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), AtlError::LeafIndexOutOfBounds { .. }));
+    }
+
+    #[test]
+    fn test_invalid_super_root_format() {
+        let data_tree_root = hash_bytes(0xaa);
+
+        let super_proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 0,
+            super_tree_size: 1,
+            super_root: "invalid".to_string(), // Bad format!
+            inclusion: vec![],
+            consistency_to_origin: vec![],
+        };
+
+        let result = verify_super_inclusion(&data_tree_root, &super_proof);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), AtlError::InvalidHash(_)));
+    }
+
+    #[test]
+    fn test_invalid_inclusion_path_element() {
+        let data_tree_root = hash_bytes(0xaa);
+
+        let super_proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 0,
+            super_tree_size: 2,
+            super_root: make_hash(0xbb),
+            inclusion: vec!["invalid".to_string()], // Bad format!
+            consistency_to_origin: vec![],
+        };
+
+        let result = verify_super_inclusion(&data_tree_root, &super_proof);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), AtlError::InvalidHash(_)));
+    }
+
+    #[test]
+    fn test_single_leaf_with_nonempty_path() {
+        let data_tree_root = hash_bytes(0xaa);
+
+        let super_proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 0,
+            super_tree_size: 1,
+            super_root: make_hash(0xaa),
+            inclusion: vec![make_hash(0xbb)], // Should be empty!
+            consistency_to_origin: vec![],
+        };
+
+        let result = verify_super_inclusion(&data_tree_root, &super_proof);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), AtlError::InvalidProofStructure { .. }));
+    }
+}
+
+#[cfg(test)]
+mod consistency_to_origin_tests {
+    use super::*;
+    use crate::core::merkle::hash_children;
+
+    fn make_hash(byte: u8) -> String {
+        format!("sha256:{}", hex::encode([byte; 32]))
+    }
+
+    fn hash_bytes(byte: u8) -> Hash {
+        [byte; 32]
+    }
+
+    // === Valid Proof Tests ===
+
+    #[test]
+    fn test_genesis_tree_consistent() {
+        // Size 1: genesis == super_root, empty path
+        let super_proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 0,
+            super_tree_size: 1,
+            super_root: make_hash(0xaa),
+            inclusion: vec![],
+            consistency_to_origin: vec![],
+        };
+
+        let result = verify_consistency_to_origin(&super_proof);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    #[test]
+    fn test_two_trees_consistent() {
+        // Size 1 to 2: genesis = R0, new = H(R0||R1)
+        let r0 = hash_bytes(0xaa);
+        let r1 = hash_bytes(0xbb);
+        let super_root_2 = hash_children(&r0, &r1);
+
+        // Consistency proof from 1 to 2: [R1]
+        let super_proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 1,
+            super_tree_size: 2,
+            super_root: format!("sha256:{}", hex::encode(super_root_2)),
+            inclusion: vec![],
+            consistency_to_origin: vec![make_hash(0xbb)],
+        };
+
+        let result = verify_consistency_to_origin(&super_proof);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    #[test]
+    fn test_three_trees_consistent() {
+        // Size 1 to 3
+        let r0 = hash_bytes(0xaa);
+        let r1 = hash_bytes(0xbb);
+        let r2 = hash_bytes(0xcc);
+        let h01 = hash_children(&r0, &r1);
+        let super_root_3 = hash_children(&h01, &r2);
+
+        // Consistency from 1 to 3: [R1, R2]
+        let super_proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 2,
+            super_tree_size: 3,
+            super_root: format!("sha256:{}", hex::encode(super_root_3)),
+            inclusion: vec![],
+            consistency_to_origin: vec![make_hash(0xbb), make_hash(0xcc)],
+        };
+
+        let result = verify_consistency_to_origin(&super_proof);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    // === Invalid Proof Tests ===
+
+    #[test]
+    fn test_genesis_mismatch() {
+        // genesis != super_root for size 1
+        let super_proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 0,
+            super_tree_size: 1,
+            super_root: make_hash(0xff), // Different!
+            inclusion: vec![],
+            consistency_to_origin: vec![],
+        };
+
+        let result = verify_consistency_to_origin(&super_proof);
+        assert!(result.is_ok());
+        assert!(!result.unwrap()); // Valid structure, wrong hash
+    }
+
+    #[test]
+    fn test_wrong_consistency_path() {
+        let r0 = hash_bytes(0xaa);
+        let r1 = hash_bytes(0xbb);
+        let super_root_2 = hash_children(&r0, &r1);
+
+        let super_proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 1,
+            super_tree_size: 2,
+            super_root: format!("sha256:{}", hex::encode(super_root_2)),
+            inclusion: vec![],
+            consistency_to_origin: vec![make_hash(0xff)], // Wrong!
+        };
+
+        let result = verify_consistency_to_origin(&super_proof);
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
+    }
+
+    // === Error Cases ===
+
+    #[test]
+    fn test_zero_size_error() {
+        let super_proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 0,
+            super_tree_size: 0, // Invalid!
+            super_root: make_hash(0xaa),
+            inclusion: vec![],
+            consistency_to_origin: vec![],
+        };
+
+        let result = verify_consistency_to_origin(&super_proof);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), AtlError::InvalidTreeSize { .. }));
+    }
+
+    #[test]
+    fn test_genesis_nonempty_path_error() {
+        // Size 1 but non-empty consistency path
+        let super_proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 0,
+            super_tree_size: 1,
+            super_root: make_hash(0xaa),
+            inclusion: vec![],
+            consistency_to_origin: vec![make_hash(0xbb)], // Should be empty!
+        };
+
+        let result = verify_consistency_to_origin(&super_proof);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), AtlError::InvalidProofStructure { .. }));
+    }
+
+    #[test]
+    fn test_invalid_genesis_format() {
+        let super_proof = SuperProof {
+            genesis_super_root: "invalid".to_string(), // Bad format!
+            data_tree_index: 0,
+            super_tree_size: 2,
+            super_root: make_hash(0xbb),
+            inclusion: vec![],
+            consistency_to_origin: vec![make_hash(0xcc)],
+        };
+
+        let result = verify_consistency_to_origin(&super_proof);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), AtlError::InvalidHash(_)));
+    }
+
+    #[test]
+    fn test_invalid_super_root_format() {
+        let super_proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 0,
+            super_tree_size: 2,
+            super_root: "invalid".to_string(), // Bad format!
+            inclusion: vec![],
+            consistency_to_origin: vec![make_hash(0xcc)],
+        };
+
+        let result = verify_consistency_to_origin(&super_proof);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), AtlError::InvalidHash(_)));
+    }
+
+    #[test]
+    fn test_invalid_consistency_path_element() {
+        let super_proof = SuperProof {
+            genesis_super_root: make_hash(0xaa),
+            data_tree_index: 0,
+            super_tree_size: 2,
+            super_root: make_hash(0xbb),
+            inclusion: vec![],
+            consistency_to_origin: vec!["invalid".to_string()], // Bad format!
+        };
+
+        let result = verify_consistency_to_origin(&super_proof);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), AtlError::InvalidHash(_)));
+    }
+}
