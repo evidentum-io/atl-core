@@ -1431,3 +1431,408 @@ mod consistency_to_origin_tests {
         assert!(matches!(result.unwrap_err(), AtlError::InvalidHash(_)));
     }
 }
+
+#[cfg(test)]
+mod cross_receipt_verification_tests {
+    use super::*;
+    use crate::core::checkpoint::CheckpointJson;
+    use crate::core::receipt::{Receipt, ReceiptEntry, ReceiptProof, SuperProof};
+    use std::cmp::Ordering;
+    use uuid::Uuid;
+
+    // === Test Fixture Helpers ===
+
+    fn make_hash(byte: u8) -> String {
+        format!("sha256:{}", hex::encode([byte; 32]))
+    }
+
+    fn make_receipt_entry() -> ReceiptEntry {
+        ReceiptEntry {
+            id: Uuid::nil(),
+            payload_hash: make_hash(0x11),
+            metadata: serde_json::json!({}),
+        }
+    }
+
+    fn make_receipt_proof() -> ReceiptProof {
+        ReceiptProof {
+            tree_size: 10,
+            root_hash: make_hash(0xaa),
+            inclusion_path: vec![make_hash(0x22), make_hash(0x33)],
+            leaf_index: 5,
+            checkpoint: CheckpointJson {
+                origin: make_hash(0xbb),
+                tree_size: 10,
+                root_hash: make_hash(0xaa),
+                timestamp: 1_704_067_200_000_000_000,
+                signature: "base64:AAAA".to_string(),
+                key_id: make_hash(0xcc),
+            },
+            consistency_proof: None,
+        }
+    }
+
+    fn make_super_proof(genesis_byte: u8, index: u64, size: u64) -> SuperProof {
+        SuperProof {
+            genesis_super_root: make_hash(genesis_byte),
+            data_tree_index: index,
+            super_tree_size: size,
+            super_root: make_hash(genesis_byte), // Simplified: same as genesis for tests
+            inclusion: vec![],
+            consistency_to_origin: vec![],
+        }
+    }
+
+    fn make_receipt_full(genesis_byte: u8, index: u64, size: u64) -> Receipt {
+        Receipt {
+            spec_version: "2.0.0".to_string(),
+            upgrade_url: None,
+            entry: make_receipt_entry(),
+            proof: make_receipt_proof(),
+            super_proof: make_super_proof(genesis_byte, index, size),
+            anchors: vec![],
+        }
+    }
+
+    // NOTE: Cannot create receipt without super_proof - it's a mandatory field
+    // The old make_receipt_without_super_proof() is REMOVED
+
+    // === Same Log Instance Tests ===
+
+    #[test]
+    fn test_cross_receipt_same_log_same_genesis() {
+        let receipt_a = make_receipt_full(0xaa, 5, 10);
+        let receipt_b = make_receipt_full(0xaa, 8, 15);
+
+        let result = verify_cross_receipts(&receipt_a, &receipt_b);
+
+        assert!(result.same_log_instance);
+        // genesis_super_root is non-Option in v2.0
+        assert_eq!(result.genesis_super_root, [0xaa; 32]);
+        assert_eq!(result.receipt_a_index, 5);
+        assert_eq!(result.receipt_b_index, 8);
+    }
+
+    #[test]
+    fn test_cross_receipt_same_log_genesis_hash_match() {
+        let receipt_a = make_receipt_full(0xbb, 3, 10);
+        let receipt_b = make_receipt_full(0xbb, 7, 20);
+
+        let result = verify_cross_receipts(&receipt_a, &receipt_b);
+
+        assert!(result.same_log_instance);
+        assert_eq!(result.genesis_super_root, [0xbb; 32]);
+    }
+
+    // === Different Log Detection Tests ===
+
+    #[test]
+    fn test_cross_receipt_different_logs() {
+        let receipt_a = make_receipt_full(0xaa, 5, 10);
+        let receipt_b = make_receipt_full(0xbb, 5, 10); // Different genesis!
+
+        let result = verify_cross_receipts(&receipt_a, &receipt_b);
+
+        assert!(!result.same_log_instance);
+        assert!(!result.is_valid());
+    }
+
+    #[test]
+    fn test_cross_receipt_different_logs_error_message() {
+        let receipt_a = make_receipt_full(0xaa, 5, 10);
+        let receipt_b = make_receipt_full(0xcc, 5, 10);
+
+        let result = verify_cross_receipts(&receipt_a, &receipt_b);
+
+        assert!(!result.errors.is_empty());
+        assert!(result.errors.iter().any(|e| e.contains("genesis_super_root")));
+    }
+
+    // === Ordering Tests ===
+
+    #[test]
+    fn test_cross_receipt_ordering_a_earlier() {
+        let receipt_a = make_receipt_full(0xaa, 5, 10); // index 5
+        let receipt_b = make_receipt_full(0xaa, 15, 20); // index 15
+
+        let result = verify_cross_receipts(&receipt_a, &receipt_b);
+
+        assert!(result.same_log_instance);
+        assert_eq!(result.ordering(), Ordering::Less); // A < B
+    }
+
+    #[test]
+    fn test_cross_receipt_ordering_b_earlier() {
+        let receipt_a = make_receipt_full(0xaa, 15, 20); // index 15
+        let receipt_b = make_receipt_full(0xaa, 5, 10); // index 5
+
+        let result = verify_cross_receipts(&receipt_a, &receipt_b);
+
+        assert!(result.same_log_instance);
+        assert_eq!(result.ordering(), Ordering::Greater); // A > B
+    }
+
+    #[test]
+    fn test_cross_receipt_ordering_same_index() {
+        let receipt_a = make_receipt_full(0xaa, 5, 10);
+        let receipt_b = make_receipt_full(0xaa, 5, 10); // Same index
+
+        let result = verify_cross_receipts(&receipt_a, &receipt_b);
+
+        assert!(result.same_log_instance);
+        assert_eq!(result.ordering(), Ordering::Equal);
+    }
+
+    #[test]
+    fn test_cross_receipt_ordering_still_available_when_different_logs() {
+        let receipt_a = make_receipt_full(0xaa, 5, 10);
+        let receipt_b = make_receipt_full(0xbb, 8, 15); // Different genesis
+
+        let result = verify_cross_receipts(&receipt_a, &receipt_b);
+
+        // Ordering is still available (indexes were recorded)
+        // but same_log_instance is false
+        assert!(!result.same_log_instance);
+        // Indexes are still recorded
+        assert_eq!(result.receipt_a_index, 5);
+        assert_eq!(result.receipt_b_index, 8);
+    }
+
+    // === Invalid Genesis Format Tests ===
+
+    #[test]
+    fn test_cross_receipt_invalid_genesis_format_a() {
+        let mut receipt_a = make_receipt_full(0xaa, 5, 10);
+        receipt_a.super_proof.genesis_super_root = "invalid".to_string();
+
+        let receipt_b = make_receipt_full(0xaa, 8, 15);
+
+        let result = verify_cross_receipts(&receipt_a, &receipt_b);
+
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.contains("Receipt A") && e.contains("invalid")));
+    }
+
+    #[test]
+    fn test_cross_receipt_invalid_genesis_format_b() {
+        let receipt_a = make_receipt_full(0xaa, 5, 10);
+
+        let mut receipt_b = make_receipt_full(0xaa, 8, 15);
+        receipt_b.super_proof.genesis_super_root = "md5:abc".to_string();
+
+        let result = verify_cross_receipts(&receipt_a, &receipt_b);
+
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.contains("Receipt B")));
+    }
+
+    #[test]
+    fn test_cross_receipt_invalid_genesis_wrong_length() {
+        let mut receipt_a = make_receipt_full(0xaa, 5, 10);
+        receipt_a.super_proof.genesis_super_root = "sha256:aabbcc".to_string(); // Too short
+
+        let receipt_b = make_receipt_full(0xaa, 8, 15);
+
+        let result = verify_cross_receipts(&receipt_a, &receipt_b);
+
+        assert!(!result.is_valid());
+    }
+
+    // === CrossReceiptVerificationResult Tests (Non-Option Fields) ===
+
+    #[test]
+    fn test_result_is_valid_true() {
+        let result = CrossReceiptVerificationResult {
+            same_log_instance: true,
+            history_consistent: true,
+            genesis_super_root: [0xaa; 32],
+            receipt_a_index: 5,
+            receipt_b_index: 10,
+            receipt_a_super_tree_size: 10,
+            receipt_b_super_tree_size: 15,
+            errors: vec![],
+        };
+
+        assert!(result.is_valid());
+    }
+
+    #[test]
+    fn test_result_is_valid_false_same_log_false() {
+        let result = CrossReceiptVerificationResult {
+            same_log_instance: false,
+            history_consistent: true,
+            genesis_super_root: [0; 32], // Zero when logs differ
+            receipt_a_index: 5,
+            receipt_b_index: 10,
+            receipt_a_super_tree_size: 10,
+            receipt_b_super_tree_size: 15,
+            errors: vec!["Different genesis".to_string()],
+        };
+
+        assert!(!result.is_valid());
+    }
+
+    #[test]
+    fn test_result_is_valid_false_history_inconsistent() {
+        let result = CrossReceiptVerificationResult {
+            same_log_instance: true,
+            history_consistent: false,
+            genesis_super_root: [0xaa; 32],
+            receipt_a_index: 5,
+            receipt_b_index: 10,
+            receipt_a_super_tree_size: 10,
+            receipt_b_super_tree_size: 15,
+            errors: vec!["Consistency verification failed".to_string()],
+        };
+
+        assert!(!result.is_valid());
+    }
+
+    #[test]
+    fn test_result_ordering_method() {
+        let result = CrossReceiptVerificationResult {
+            same_log_instance: true,
+            history_consistent: true,
+            genesis_super_root: [0xaa; 32],
+            receipt_a_index: 3,
+            receipt_b_index: 7,
+            receipt_a_super_tree_size: 10,
+            receipt_b_super_tree_size: 15,
+            errors: vec![],
+        };
+
+        assert_eq!(result.ordering(), Ordering::Less); // 3 < 7
+    }
+
+    #[test]
+    fn test_result_ordering_equal() {
+        let result = CrossReceiptVerificationResult {
+            same_log_instance: true,
+            history_consistent: true,
+            genesis_super_root: [0xaa; 32],
+            receipt_a_index: 5,
+            receipt_b_index: 5,
+            receipt_a_super_tree_size: 10,
+            receipt_b_super_tree_size: 15,
+            errors: vec![],
+        };
+
+        assert_eq!(result.ordering(), Ordering::Equal);
+    }
+
+    #[test]
+    fn test_result_fields_non_option() {
+        // Verify all fields are concrete types (not Option)
+        let result = CrossReceiptVerificationResult {
+            same_log_instance: true,
+            history_consistent: true,
+            genesis_super_root: [0xaa; 32],
+            receipt_a_index: 5,
+            receipt_b_index: 10,
+            receipt_a_super_tree_size: 10,
+            receipt_b_super_tree_size: 15,
+            errors: vec![],
+        };
+
+        // These are concrete types, not Option<T>
+        let _: bool = result.same_log_instance;
+        let _: bool = result.history_consistent;
+        let _: [u8; 32] = result.genesis_super_root;
+        let _: u64 = result.receipt_a_index;
+        let _: u64 = result.receipt_b_index;
+        let _: Vec<String> = result.errors;
+    }
+
+    // === History Consistency Tests ===
+
+    #[test]
+    fn test_cross_receipt_history_consistent_both_valid() {
+        // Both receipts have valid consistency_to_origin (empty for genesis)
+        let receipt_a = make_receipt_full(0xaa, 0, 1); // Genesis: index 0, size 1
+        let receipt_b = make_receipt_full(0xaa, 0, 1); // Same genesis
+
+        let result = verify_cross_receipts(&receipt_a, &receipt_b);
+
+        assert!(result.same_log_instance);
+        assert!(result.history_consistent);
+        assert!(result.is_valid());
+    }
+
+    #[test]
+    fn test_cross_receipt_with_consistency_proof() {
+        let mut receipt_a = make_receipt_full(0xaa, 5, 10);
+        receipt_a.super_proof.consistency_to_origin = vec![make_hash(0xcc), make_hash(0xdd)];
+
+        let mut receipt_b = make_receipt_full(0xaa, 8, 15);
+        receipt_b.super_proof.consistency_to_origin = vec![make_hash(0xee), make_hash(0xff)];
+
+        let result = verify_cross_receipts(&receipt_a, &receipt_b);
+
+        assert!(result.same_log_instance);
+        // Note: history_consistent depends on verify_consistency_to_origin result
+    }
+
+    // === Edge Cases ===
+
+    #[test]
+    fn test_cross_receipt_genesis_receipts() {
+        // Both are genesis receipts (first Data Tree)
+        let receipt_a = make_receipt_full(0xaa, 0, 1);
+        let receipt_b = make_receipt_full(0xaa, 0, 1);
+
+        let result = verify_cross_receipts(&receipt_a, &receipt_b);
+
+        assert!(result.same_log_instance);
+        assert_eq!(result.ordering(), Ordering::Equal);
+    }
+
+    #[test]
+    fn test_cross_receipt_large_indexes() {
+        let receipt_a = make_receipt_full(0xaa, 1_000_000, 2_000_000);
+        let receipt_b = make_receipt_full(0xaa, 500_000, 1_500_000);
+
+        let result = verify_cross_receipts(&receipt_a, &receipt_b);
+
+        assert!(result.same_log_instance);
+        assert_eq!(result.receipt_a_index, 1_000_000);
+        assert_eq!(result.receipt_b_index, 500_000);
+        assert_eq!(result.ordering(), Ordering::Greater); // A > B
+    }
+
+    #[test]
+    fn test_cross_receipt_zero_index() {
+        let receipt_a = make_receipt_full(0xaa, 0, 1);
+        let receipt_b = make_receipt_full(0xaa, 10, 20);
+
+        let result = verify_cross_receipts(&receipt_a, &receipt_b);
+
+        assert!(result.same_log_instance);
+        assert_eq!(result.receipt_a_index, 0);
+        assert_eq!(result.ordering(), Ordering::Less); // 0 < 10
+    }
+
+    // === Trust Model Documentation Tests ===
+
+    #[test]
+    fn test_cross_receipt_does_not_verify_individual_receipts() {
+        // This test documents what cross-receipt verification does NOT do
+        // It only checks genesis match and consistency_to_origin
+        // It does NOT verify:
+        // - Checkpoint signatures
+        // - Entry hash reconstruction
+        // - Inclusion proofs
+        // - Anchor timestamps
+
+        let receipt_a = make_receipt_full(0xaa, 5, 10);
+        let receipt_b = make_receipt_full(0xaa, 8, 15);
+
+        // Even with potentially invalid individual receipts,
+        // cross-receipt verification only checks genesis match
+        let result = verify_cross_receipts(&receipt_a, &receipt_b);
+
+        // The result tells us they claim the same log origin
+        // NOT that the receipts themselves are valid
+        assert!(result.same_log_instance);
+        // Full trust requires calling verify_receipt() on each first
+    }
+}

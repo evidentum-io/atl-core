@@ -746,8 +746,7 @@ mod receipt_super_proof_integration_tests {
         let error_msg = ots_result.error.as_ref().unwrap();
         assert!(
             error_msg.contains("target") || error_msg.contains("mismatch"),
-            "Error should mention target or mismatch: {}",
-            error_msg
+            "Error should mention target or mismatch: {error_msg}"
         );
     }
 
@@ -778,8 +777,7 @@ mod receipt_super_proof_integration_tests {
         let error_msg = tsa_result.error.as_ref().unwrap();
         assert!(
             error_msg.contains("target") || error_msg.contains("mismatch"),
-            "Error should mention target or mismatch: {}",
-            error_msg
+            "Error should mention target or mismatch: {error_msg}"
         );
     }
 
