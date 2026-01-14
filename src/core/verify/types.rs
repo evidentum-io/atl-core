@@ -163,6 +163,40 @@ pub struct VerifyOptions {
     pub min_valid_anchors: usize,
 }
 
+impl std::fmt::Display for VerificationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidReceipt(msg) => write!(f, "Invalid receipt: {msg}"),
+            Self::InvalidHash { field, message } => {
+                write!(f, "Invalid hash in field '{field}': {message}")
+            }
+            Self::SignatureFailed => write!(f, "Signature verification failed"),
+            Self::InclusionProofFailed { reason } => write!(f, "Inclusion proof failed: {reason}"),
+            Self::ConsistencyProofFailed { reason } => {
+                write!(f, "Consistency proof failed: {reason}")
+            }
+            Self::RootHashMismatch => write!(f, "Root hash mismatch between checkpoint and proof"),
+            Self::TreeSizeMismatch => write!(f, "Tree size mismatch between checkpoint and proof"),
+            Self::AnchorFailed { anchor_type, reason } => {
+                write!(f, "Anchor verification failed ({anchor_type}): {reason}")
+            }
+            Self::SuperInclusionFailed { reason } => {
+                write!(f, "Super-Tree inclusion proof failed: {reason}")
+            }
+            Self::SuperConsistencyFailed { reason } => {
+                write!(f, "Super-Tree consistency proof failed: {reason}")
+            }
+            Self::SuperDataMismatch { field, expected, actual } => {
+                write!(f, "Super-Tree data mismatch in {field}: expected {expected}, got {actual}")
+            }
+            Self::MissingSuperProof => write!(f, "Missing super_proof (required in v2.0)"),
+            Self::UnsupportedVersion(version) => {
+                write!(f, "Unsupported receipt version: {version}")
+            }
+        }
+    }
+}
+
 impl VerificationResult {
     /// Check if all critical verifications passed
     #[must_use]
