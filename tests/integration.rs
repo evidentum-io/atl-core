@@ -87,6 +87,7 @@ fn create_test_receipt(signing_key: &SigningKey) -> Receipt {
 
     Receipt {
         spec_version: RECEIPT_SPEC_VERSION.to_string(),
+        upgrade_url: None,
         entry: atl_core::core::receipt::ReceiptEntry {
             id: entry_id,
             payload_hash: format_hash(&payload_hash),
@@ -106,6 +107,14 @@ fn create_test_receipt(signing_key: &SigningKey) -> Receipt {
                 key_id: format_hash(&checkpoint.key_id),
             },
             consistency_proof: None,
+        },
+        super_proof: atl_core::core::receipt::SuperProof {
+            genesis_super_root: format_hash(&root_hash),
+            data_tree_index: 0,
+            super_tree_size: 1,
+            super_root: format_hash(&root_hash),
+            inclusion: vec![],
+            consistency_to_origin: vec![],
         },
         anchors: vec![],
     }
@@ -307,7 +316,7 @@ fn test_checkpoint_json_roundtrip() {
 #[test]
 fn test_invalid_receipt_version() {
     let json = r#"{
-        "spec_version": "2.0.0",
+        "spec_version": "3.0.0",
         "entry": {
             "id": "550e8400-e29b-41d4-a716-446655440000",
             "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -326,6 +335,14 @@ fn test_invalid_receipt_version() {
                 "signature": "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
                 "key_id": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
             }
+        },
+        "super_proof": {
+            "genesis_super_root": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "data_tree_index": 0,
+            "super_tree_size": 1,
+            "super_root": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "inclusion": [],
+            "consistency_to_origin": []
         }
     }"#;
 
@@ -336,7 +353,7 @@ fn test_invalid_receipt_version() {
 #[test]
 fn test_invalid_hash_format() {
     let json = r#"{
-        "spec_version": "1.0.0",
+        "spec_version": "2.0.0",
         "entry": {
             "id": "550e8400-e29b-41d4-a716-446655440000",
             "payload_hash": "invalid:notahash",
@@ -355,6 +372,14 @@ fn test_invalid_hash_format() {
                 "signature": "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
                 "key_id": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
             }
+        },
+        "super_proof": {
+            "genesis_super_root": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "data_tree_index": 0,
+            "super_tree_size": 1,
+            "super_root": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "inclusion": [],
+            "consistency_to_origin": []
         }
     }"#;
 
@@ -471,7 +496,7 @@ fn test_receipt_helpers() {
     let receipt = create_test_receipt(&signing_key);
 
     // Test helper methods
-    assert_eq!(receipt.spec_version(), "1.0.0");
+    assert_eq!(receipt.spec_version(), "2.0.0");
     assert_eq!(receipt.entry_id().to_string(), "550e8400-e29b-41d4-a716-446655440000");
     assert_eq!(receipt.tree_size(), 1);
     assert_eq!(receipt.leaf_index(), 0);
@@ -691,6 +716,8 @@ fn test_receipt_with_rfc3161_anchor_wrong_hash() {
     let mut receipt = create_test_receipt(&signing_key);
 
     receipt.anchors = vec![ReceiptAnchor::Rfc3161 {
+        target: "data_tree_root".to_string(),
+        target_hash: receipt.proof.root_hash.clone(),
         tsa_url: "https://freetsa.org/tsr".to_string(),
         timestamp: "2026-01-04T21:57:43Z".to_string(),
         token_der: format!("base64:{FREETSA_TOKEN}"),
@@ -717,6 +744,8 @@ fn test_receipt_with_rfc3161_anchor_malformed() {
     let mut receipt = create_test_receipt(&signing_key);
 
     receipt.anchors = vec![ReceiptAnchor::Rfc3161 {
+        target: "data_tree_root".to_string(),
+        target_hash: receipt.proof.root_hash.clone(),
         tsa_url: "https://freetsa.org/tsr".to_string(),
         timestamp: "2026-01-04T21:57:43Z".to_string(),
         token_der: "base64:INVALID_DER_TOKEN".to_string(),
@@ -742,6 +771,8 @@ fn test_receipt_with_rfc3161_anchor_feature_disabled() {
     let mut receipt = create_test_receipt(&signing_key);
 
     receipt.anchors = vec![ReceiptAnchor::Rfc3161 {
+        target: "data_tree_root".to_string(),
+        target_hash: receipt.proof.root_hash.clone(),
         tsa_url: "https://freetsa.org/tsr".to_string(),
         timestamp: "2026-01-04T21:57:43Z".to_string(),
         token_der: "base64:AAAA".to_string(),

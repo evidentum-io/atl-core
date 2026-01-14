@@ -243,7 +243,7 @@ fn bench_checkpoint_from_bytes(c: &mut Criterion) {
 
 fn bench_receipt_parsing(c: &mut Criterion) {
     let receipt_json = r#"{
-        "spec_version": "1.0.0",
+        "spec_version": "2.0.0",
         "entry": {
             "id": "550e8400-e29b-41d4-a716-446655440000",
             "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -268,7 +268,16 @@ fn bench_receipt_parsing(c: &mut Criterion) {
                 "signature": "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
                 "key_id": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
             }
-        }
+        },
+        "super_proof": {
+            "genesis_super_root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "data_tree_index": 0,
+            "super_tree_size": 1,
+            "super_root": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            "inclusion": [],
+            "consistency_to_origin": []
+        },
+        "anchors": []
     }"#;
 
     c.bench_function("receipt_from_json", |b| {

@@ -11,6 +11,7 @@
 /// Contains detailed information about the verification process,
 /// including success/failure status and any errors encountered.
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct VerificationResult {
     /// Overall verification status (true if all critical checks passed)
     pub is_valid: bool,
@@ -35,6 +36,24 @@ pub struct VerificationResult {
 
     /// Consistency proof verification (if present)
     pub consistency_valid: Option<bool>,
+
+    /// Super-Tree inclusion proof verification passed (MANDATORY in v2.0)
+    pub super_inclusion_valid: bool,
+
+    /// Super-Tree consistency to origin verification passed (MANDATORY in v2.0)
+    pub super_consistency_valid: bool,
+
+    /// Genesis super root (ALWAYS present in v2.0)
+    pub genesis_super_root: [u8; 32],
+
+    /// Super root (ALWAYS present in v2.0)
+    pub super_root: [u8; 32],
+
+    /// Data Tree index in Super-Tree (ALWAYS present in v2.0)
+    pub data_tree_index: u64,
+
+    /// Super-Tree size (ALWAYS present in v2.0)
+    pub super_tree_size: u64,
 
     /// Anchor verification results
     pub anchor_results: Vec<AnchorVerificationResult>,
@@ -101,6 +120,34 @@ pub enum VerificationError {
         /// Reason for failure
         reason: String,
     },
+
+    /// Super-Tree inclusion proof failed (MANDATORY check)
+    SuperInclusionFailed {
+        /// Reason for failure
+        reason: String,
+    },
+
+    /// Super-Tree consistency to origin failed (MANDATORY check)
+    SuperConsistencyFailed {
+        /// Reason for failure
+        reason: String,
+    },
+
+    /// Super-Tree data mismatch
+    SuperDataMismatch {
+        /// Field that mismatched
+        field: String,
+        /// Expected value
+        expected: String,
+        /// Actual value
+        actual: String,
+    },
+
+    /// Missing `super_proof` (required in v2.0)
+    MissingSuperProof,
+
+    /// Unsupported receipt version
+    UnsupportedVersion(String),
 }
 
 /// Options for verification
@@ -114,6 +161,40 @@ pub struct VerifyOptions {
 
     /// Require at least this many valid anchors
     pub min_valid_anchors: usize,
+}
+
+impl std::fmt::Display for VerificationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidReceipt(msg) => write!(f, "Invalid receipt: {msg}"),
+            Self::InvalidHash { field, message } => {
+                write!(f, "Invalid hash in field '{field}': {message}")
+            }
+            Self::SignatureFailed => write!(f, "Signature verification failed"),
+            Self::InclusionProofFailed { reason } => write!(f, "Inclusion proof failed: {reason}"),
+            Self::ConsistencyProofFailed { reason } => {
+                write!(f, "Consistency proof failed: {reason}")
+            }
+            Self::RootHashMismatch => write!(f, "Root hash mismatch between checkpoint and proof"),
+            Self::TreeSizeMismatch => write!(f, "Tree size mismatch between checkpoint and proof"),
+            Self::AnchorFailed { anchor_type, reason } => {
+                write!(f, "Anchor verification failed ({anchor_type}): {reason}")
+            }
+            Self::SuperInclusionFailed { reason } => {
+                write!(f, "Super-Tree inclusion proof failed: {reason}")
+            }
+            Self::SuperConsistencyFailed { reason } => {
+                write!(f, "Super-Tree consistency proof failed: {reason}")
+            }
+            Self::SuperDataMismatch { field, expected, actual } => {
+                write!(f, "Super-Tree data mismatch in {field}: expected {expected}, got {actual}")
+            }
+            Self::MissingSuperProof => write!(f, "Missing super_proof (required in v2.0)"),
+            Self::UnsupportedVersion(version) => {
+                write!(f, "Unsupported receipt version: {version}")
+            }
+        }
+    }
 }
 
 impl VerificationResult {

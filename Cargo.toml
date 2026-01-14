@@ -1,10 +1,10 @@
 [package]
 name = "atl-core"
-version = "0.10.0"
+version = "0.21.1"
 edition = "2021"
 rust-version = "1.92.0"
 license = "Apache-2.0"
-description = "Pure cryptographic library for ATL Protocol v1 (Anchored Transparency Log)"
+description = "Pure cryptographic library for ATL Protocol v2.0 (Anchored Transparency Log)"
 repository = "https://github.com/evidentum/atl-core"
 keywords = ["transparency-log", "merkle-tree", "cryptography", "verification"]
 categories = ["cryptography", "data-structures"]
