@@ -128,7 +128,7 @@ pub struct Receipt {
     ///
     /// Present only after the Data Tree has been closed and added to Super-Tree.
     /// Receipts without `super_proof` are Receipt-Lite (valid but not fully anchored).
-    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[serde(default)]
     pub super_proof: Option<SuperProof>,
 
     /// External timestamp anchors (optional)
@@ -1967,8 +1967,8 @@ mod receipt_parsing_tests {
     }
 
     #[test]
-    fn test_receipt_json_omits_none_super_proof() {
-        // Test serialization omits None super_proof
+    fn test_receipt_json_includes_null_super_proof() {
+        // Test serialization includes super_proof: null when None (per v2.0 spec)
         let json = r#"{
             "spec_version": "2.0.0",
             "entry": {
@@ -1996,8 +1996,11 @@ mod receipt_parsing_tests {
         let receipt = Receipt::from_json(json).expect("Receipt-Lite should parse");
         let serialized = receipt.to_json().expect("Should serialize");
 
-        // super_proof should not be in JSON when None
-        assert!(!serialized.contains("super_proof"), "JSON should not contain super_proof field");
+        // super_proof MUST be present as null in JSON (v2.0 spec requirement)
+        assert!(
+            serialized.contains("\"super_proof\":null"),
+            "JSON must contain super_proof field with null value"
+        );
     }
 
     #[test]
