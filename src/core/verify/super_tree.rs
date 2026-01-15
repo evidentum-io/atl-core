@@ -2,10 +2,6 @@
 //!
 //! This module provides verification for Super-Tree proofs per ATL Protocol v2.0.
 //! The Super-Tree is a Merkle tree where each leaf is a Data Tree root hash.
-//!
-//! ## Mandatory `super_proof`
-//!
-//! All verification functions require valid `super_proof`.
 
 use crate::core::merkle::{
     verify_consistency, verify_inclusion, ConsistencyProof, Hash, InclusionProof,
@@ -278,7 +274,7 @@ impl SuperVerificationResult {
 /// Result of cross-receipt verification
 ///
 /// Indicates whether two receipts belong to the same consistent log history.
-/// All fields are concrete types - no Options because `super_proof` is mandatory.
+/// All fields are concrete types - no Options.
 #[derive(Debug, Clone)]
 pub struct CrossReceiptVerificationResult {
     /// Whether both receipts are from the same log instance
@@ -347,8 +343,11 @@ impl CrossReceiptVerificationResult {
 
 /// Verify that two receipts belong to the same consistent log history
 ///
+/// **Both receipts MUST have `super_proof`** for cross-verification.
+/// Receipt-Lite (without `super_proof`) cannot be cross-verified.
+///
 /// Per ATL Protocol v2.0 Section 5.4.3, cross-receipt verification:
-/// 1. Both receipts MUST have `super_proof` (mandatory in v2.0)
+/// 1. Both receipts MUST have `super_proof`
 /// 2. Verify that `A.super_proof.genesis_super_root == B.super_proof.genesis_super_root`
 /// 3. Verify `consistency_to_origin` for both receipts
 /// 4. If both pass, the log history between them was not modified.
@@ -357,8 +356,8 @@ impl CrossReceiptVerificationResult {
 ///
 /// # Arguments
 ///
-/// * `receipt_a` - First receipt (v2.0 with mandatory `super_proof`)
-/// * `receipt_b` - Second receipt (v2.0 with mandatory `super_proof`)
+/// * `receipt_a` - First receipt (must have `super_proof`)
+/// * `receipt_b` - Second receipt (must have `super_proof`)
 ///
 /// # Returns
 ///
@@ -420,9 +419,20 @@ pub fn verify_cross_receipts(
         errors: vec![],
     };
 
-    // super_proof is mandatory in v2.0, so we can access it directly
-    let super_proof_a = &receipt_a.super_proof;
-    let super_proof_b = &receipt_b.super_proof;
+    // Both receipts MUST have super_proof for cross-verification
+    let Some(super_proof_a) = &receipt_a.super_proof else {
+        result.errors.push(
+            "Receipt A has no super_proof (Receipt-Lite cannot be cross-verified)".to_string(),
+        );
+        return result;
+    };
+
+    let Some(super_proof_b) = &receipt_b.super_proof else {
+        result.errors.push(
+            "Receipt B has no super_proof (Receipt-Lite cannot be cross-verified)".to_string(),
+        );
+        return result;
+    };
 
     // Record data tree indexes and sizes
     result.receipt_a_index = super_proof_a.data_tree_index;
@@ -852,14 +862,14 @@ mod cross_receipt_tests {
                 },
                 consistency_proof: None,
             },
-            super_proof: SuperProof {
+            super_proof: Some(SuperProof {
                 genesis_super_root: make_test_hash(genesis),
                 data_tree_index: index,
                 super_tree_size: size,
                 super_root: make_test_hash(genesis), // Simplified for size 1
                 inclusion: vec![],
                 consistency_to_origin: vec![],
-            },
+            }),
             anchors: vec![],
         }
     }
@@ -935,7 +945,9 @@ mod cross_receipt_tests {
     #[test]
     fn test_cross_receipt_invalid_genesis_format() {
         let mut receipt_a = make_v2_receipt_with_super_proof(0xaa, 5, 10);
-        receipt_a.super_proof.genesis_super_root = "invalid".to_string();
+        if let Some(ref mut sp) = receipt_a.super_proof {
+            sp.genesis_super_root = "invalid".to_string();
+        }
 
         let receipt_b = make_v2_receipt_with_super_proof(0xaa, 8, 15);
 
@@ -1489,7 +1501,7 @@ mod cross_receipt_verification_tests {
             upgrade_url: None,
             entry: make_receipt_entry(),
             proof: make_receipt_proof(),
-            super_proof: make_super_proof(genesis_byte, index, size),
+            super_proof: Some(make_super_proof(genesis_byte, index, size)),
             anchors: vec![],
         }
     }
@@ -1603,7 +1615,9 @@ mod cross_receipt_verification_tests {
     #[test]
     fn test_cross_receipt_invalid_genesis_format_a() {
         let mut receipt_a = make_receipt_full(0xaa, 5, 10);
-        receipt_a.super_proof.genesis_super_root = "invalid".to_string();
+        if let Some(ref mut sp) = receipt_a.super_proof {
+            sp.genesis_super_root = "invalid".to_string();
+        }
 
         let receipt_b = make_receipt_full(0xaa, 8, 15);
 
@@ -1618,7 +1632,9 @@ mod cross_receipt_verification_tests {
         let receipt_a = make_receipt_full(0xaa, 5, 10);
 
         let mut receipt_b = make_receipt_full(0xaa, 8, 15);
-        receipt_b.super_proof.genesis_super_root = "md5:abc".to_string();
+        if let Some(ref mut sp) = receipt_b.super_proof {
+            sp.genesis_super_root = "md5:abc".to_string();
+        }
 
         let result = verify_cross_receipts(&receipt_a, &receipt_b);
 
@@ -1629,7 +1645,9 @@ mod cross_receipt_verification_tests {
     #[test]
     fn test_cross_receipt_invalid_genesis_wrong_length() {
         let mut receipt_a = make_receipt_full(0xaa, 5, 10);
-        receipt_a.super_proof.genesis_super_root = "sha256:aabbcc".to_string(); // Too short
+        if let Some(ref mut sp) = receipt_a.super_proof {
+            sp.genesis_super_root = "sha256:aabbcc".to_string(); // Too short
+        }
 
         let receipt_b = make_receipt_full(0xaa, 8, 15);
 
@@ -1761,10 +1779,14 @@ mod cross_receipt_verification_tests {
     #[test]
     fn test_cross_receipt_with_consistency_proof() {
         let mut receipt_a = make_receipt_full(0xaa, 5, 10);
-        receipt_a.super_proof.consistency_to_origin = vec![make_hash(0xcc), make_hash(0xdd)];
+        if let Some(ref mut sp) = receipt_a.super_proof {
+            sp.consistency_to_origin = vec![make_hash(0xcc), make_hash(0xdd)];
+        }
 
         let mut receipt_b = make_receipt_full(0xaa, 8, 15);
-        receipt_b.super_proof.consistency_to_origin = vec![make_hash(0xee), make_hash(0xff)];
+        if let Some(ref mut sp) = receipt_b.super_proof {
+            sp.consistency_to_origin = vec![make_hash(0xee), make_hash(0xff)];
+        }
 
         let result = verify_cross_receipts(&receipt_a, &receipt_b);
 

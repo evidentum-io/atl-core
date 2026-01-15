@@ -67,7 +67,7 @@ use uuid::Uuid;
 /// Current receipt specification version
 ///
 /// Version 2.0.0 is the only supported version:
-/// - Mandatory `super_proof` for global chain consistency
+/// - Optional `super_proof` for global chain consistency
 /// - Mandatory `target` and `target_hash` in anchors
 pub const RECEIPT_SPEC_VERSION: &str = "2.0.0";
 
@@ -104,7 +104,7 @@ pub const ANCHOR_TARGET_SUPER_ROOT: &str = "super_root";
 /// - `entry.payload_hash` is in "sha256:..." format
 /// - `proof.inclusion_path` contains "sha256:..." hashes
 /// - `proof.checkpoint.signature` is in "base64:..." format
-/// - `super_proof` is ALWAYS present (mandatory)
+/// - `super_proof` is optional (None for Receipt-Lite)
 /// - `anchors` is optional and can be empty
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Receipt {
@@ -124,11 +124,12 @@ pub struct Receipt {
     /// Cryptographic proof linking entry to Data Tree root
     pub proof: ReceiptProof,
 
-    /// Super-Tree proof for global chain consistency (MANDATORY)
+    /// Super-Tree proof for global chain consistency (optional)
     ///
-    /// Proves that the Data Tree root is included in the Super-Tree
-    /// and that the Super-Tree is consistent with its genesis state.
-    pub super_proof: SuperProof,
+    /// Present only after the Data Tree has been closed and added to Super-Tree.
+    /// Receipts without `super_proof` are Receipt-Lite (valid but not fully anchored).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub super_proof: Option<SuperProof>,
 
     /// External timestamp anchors (optional)
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
@@ -492,12 +493,17 @@ impl Receipt {
 
     /// Get the receipt tier
     ///
-    /// Returns the tier based on available anchors:
-    /// - Lite: No anchors (but always has `super_proof`)
-    /// - TSA: Has RFC 3161 anchor but no Bitcoin OTS
-    /// - Full: Has RFC 3161 + Bitcoin OTS anchors
+    /// Returns the tier based on available anchors and `super_proof`:
+    /// - Lite: No `super_proof` OR no anchors
+    /// - TSA: Has `super_proof` + RFC 3161 anchor but no Bitcoin OTS
+    /// - Full: Has `super_proof` + RFC 3161 + Bitcoin OTS anchors
     #[must_use]
     pub fn tier(&self) -> ReceiptTier {
+        // Without super_proof, always Lite (regardless of anchors)
+        if self.super_proof.is_none() {
+            return ReceiptTier::Lite;
+        }
+
         let has_tsa = self.anchors.iter().any(|a| matches!(a, ReceiptAnchor::Rfc3161 { .. }));
         let has_ots = self.anchors.iter().any(|a| matches!(a, ReceiptAnchor::BitcoinOts { .. }));
 
@@ -508,34 +514,45 @@ impl Receipt {
         }
     }
 
-    /// Get `super_proof` as reference (always present)
+    /// Get `super_proof` as reference (optional)
+    ///
+    /// Returns `None` for Receipt-Lite (entry in active tree).
+    /// Returns `Some(&SuperProof)` after tree closure.
     #[must_use]
-    pub const fn super_proof(&self) -> &SuperProof {
-        &self.super_proof
+    pub const fn super_proof(&self) -> Option<&SuperProof> {
+        self.super_proof.as_ref()
     }
 
-    /// Get `genesis_super_root` (always present)
+    /// Get `genesis_super_root` (optional)
+    ///
+    /// Returns `None` if no `super_proof` present.
     #[must_use]
-    pub fn genesis_super_root(&self) -> &str {
-        &self.super_proof.genesis_super_root
+    pub fn genesis_super_root(&self) -> Option<&str> {
+        self.super_proof.as_ref().map(|sp| sp.genesis_super_root.as_str())
     }
 
-    /// Get `super_root` (always present)
+    /// Get `super_root` (optional)
     #[must_use]
-    pub fn super_root(&self) -> &str {
-        &self.super_proof.super_root
+    pub fn super_root(&self) -> Option<&str> {
+        self.super_proof.as_ref().map(|sp| sp.super_root.as_str())
     }
 
-    /// Get `data_tree_index` (always present)
+    /// Get `data_tree_index` (optional)
     #[must_use]
-    pub const fn data_tree_index(&self) -> u64 {
-        self.super_proof.data_tree_index
+    pub fn data_tree_index(&self) -> Option<u64> {
+        self.super_proof.as_ref().map(|sp| sp.data_tree_index)
     }
 
-    /// Get `super_tree_size` (always present)
+    /// Get `super_tree_size` (optional)
     #[must_use]
-    pub const fn super_tree_size(&self) -> u64 {
-        self.super_proof.super_tree_size
+    pub fn super_tree_size(&self) -> Option<u64> {
+        self.super_proof.as_ref().map(|sp| sp.super_tree_size)
+    }
+
+    /// Check if receipt has `super_proof`
+    #[must_use]
+    pub const fn has_super_proof(&self) -> bool {
+        self.super_proof.is_some()
     }
 }
 
@@ -756,8 +773,8 @@ mod tests {
         assert_eq!(receipt.proof.tree_size, 100);
         assert_eq!(receipt.proof.leaf_index, 42);
         assert!(receipt.anchors.is_empty());
-        assert_eq!(receipt.super_proof.data_tree_index, 5);
-        assert_eq!(receipt.super_proof.super_tree_size, 10);
+        assert_eq!(receipt.data_tree_index(), Some(5));
+        assert_eq!(receipt.super_tree_size(), Some(10));
     }
 
     #[test]
@@ -927,7 +944,7 @@ mod tests {
                 },
                 consistency_proof: None,
             },
-            super_proof: make_test_super_proof(),
+            super_proof: Some(make_test_super_proof()),
             anchors: vec![],
         };
 
@@ -960,7 +977,7 @@ mod tests {
                 },
                 consistency_proof: None,
             },
-            super_proof: make_test_super_proof(),
+            super_proof: Some(make_test_super_proof()),
             anchors: vec![],
         };
 
@@ -1153,7 +1170,7 @@ mod tests {
                 },
                 consistency_proof: None,
             },
-            super_proof: make_test_super_proof(),
+            super_proof: Some(make_test_super_proof()),
             anchors: vec![],
         };
 
@@ -1183,8 +1200,8 @@ mod receipt_v2_tests {
     }
 
     #[test]
-    fn test_receipt_without_super_proof_fails() {
-        // Receipt missing super_proof field - MUST FAIL
+    fn test_receipt_without_super_proof_parses() {
+        // Receipt-Lite: missing super_proof field - SHOULD SUCCEED
         let json = r#"{
             "spec_version": "2.0.0",
             "entry": {
@@ -1208,8 +1225,41 @@ mod receipt_v2_tests {
             }
         }"#;
 
-        let result = Receipt::from_json(json);
-        assert!(result.is_err(), "Receipt without super_proof should fail");
+        let receipt = Receipt::from_json(json).expect("Receipt-Lite should parse");
+        assert!(receipt.super_proof.is_none());
+        assert!(!receipt.has_super_proof());
+        assert_eq!(receipt.tier(), ReceiptTier::Lite);
+    }
+
+    #[test]
+    fn test_receipt_with_null_super_proof() {
+        // Receipt with explicit null super_proof
+        let json = r#"{
+            "spec_version": "2.0.0",
+            "entry": {
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "metadata": {}
+            },
+            "proof": {
+                "tree_size": 1,
+                "root_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "inclusion_path": [],
+                "leaf_index": 0,
+                "checkpoint": {
+                    "origin": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                    "tree_size": 1,
+                    "root_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "timestamp": 1704067200000000000,
+                    "signature": "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                    "key_id": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+                }
+            },
+            "super_proof": null
+        }"#;
+
+        let receipt = Receipt::from_json(json).expect("Receipt with null super_proof should parse");
+        assert!(receipt.super_proof.is_none());
     }
 
     #[test]
@@ -1247,8 +1297,8 @@ mod receipt_v2_tests {
 
         let receipt = Receipt::from_json(json).expect("Receipt should parse");
         assert_eq!(receipt.spec_version, "2.0.0");
-        assert_eq!(receipt.super_proof.data_tree_index, 5);
-        assert_eq!(receipt.super_proof.super_tree_size, 10);
+        assert_eq!(receipt.data_tree_index(), Some(5));
+        assert_eq!(receipt.super_tree_size(), Some(10));
     }
 
     #[test]
@@ -1276,15 +1326,16 @@ mod receipt_v2_tests {
                 },
                 consistency_proof: None,
             },
-            super_proof: make_test_super_proof(),
+            super_proof: Some(make_test_super_proof()),
             anchors: vec![],
         };
 
-        // All accessors return concrete types, not Option
-        assert_eq!(receipt.genesis_super_root(), make_test_hash(0xaa));
-        assert_eq!(receipt.super_root(), make_test_hash(0xbb));
-        assert_eq!(receipt.data_tree_index(), 5);
-        assert_eq!(receipt.super_tree_size(), 10);
+        // All accessors return Option
+        assert_eq!(receipt.genesis_super_root(), Some(make_test_hash(0xaa).as_str()));
+        assert_eq!(receipt.super_root(), Some(make_test_hash(0xbb).as_str()));
+        assert_eq!(receipt.data_tree_index(), Some(5));
+        assert_eq!(receipt.super_tree_size(), Some(10));
+        assert!(receipt.has_super_proof());
     }
 
     #[test]
@@ -1312,7 +1363,7 @@ mod receipt_v2_tests {
                 },
                 consistency_proof: None,
             },
-            super_proof: make_test_super_proof(),
+            super_proof: Some(make_test_super_proof()),
             anchors: vec![],
         };
 
@@ -1320,7 +1371,7 @@ mod receipt_v2_tests {
         assert_eq!(base_receipt.tier(), ReceiptTier::Lite);
 
         // TSA: has RFC 3161 anchor
-        let mut tsa_receipt = base_receipt;
+        let mut tsa_receipt = base_receipt.clone();
         tsa_receipt.anchors = vec![ReceiptAnchor::Rfc3161 {
             target: "data_tree_root".to_string(),
             target_hash: make_test_hash(0xbb),
@@ -1341,6 +1392,18 @@ mod receipt_v2_tests {
             ots_proof: "base64:BBBB".to_string(),
         });
         assert_eq!(full_receipt.tier(), ReceiptTier::Full);
+
+        // Lite without super_proof (regardless of anchors)
+        let mut lite_without_super = base_receipt;
+        lite_without_super.super_proof = None;
+        lite_without_super.anchors = vec![ReceiptAnchor::Rfc3161 {
+            target: "data_tree_root".to_string(),
+            target_hash: make_test_hash(0xbb),
+            tsa_url: "https://freetsa.org/tsr".to_string(),
+            timestamp: "2026-01-13T12:00:00Z".to_string(),
+            token_der: "base64:AAAA".to_string(),
+        }];
+        assert_eq!(lite_without_super.tier(), ReceiptTier::Lite);
     }
 
     #[test]
@@ -1381,7 +1444,7 @@ mod receipt_v2_tests {
     }
 
     #[test]
-    fn test_super_proof_always_serialized() {
+    fn test_super_proof_serialized_when_present() {
         let receipt = Receipt {
             spec_version: "2.0.0".to_string(),
             upgrade_url: None,
@@ -1405,12 +1468,12 @@ mod receipt_v2_tests {
                 },
                 consistency_proof: None,
             },
-            super_proof: make_test_super_proof(),
+            super_proof: Some(make_test_super_proof()),
             anchors: vec![],
         };
 
         let json = receipt.to_json().unwrap();
-        assert!(json.contains("\"super_proof\""), "super_proof must always be in JSON");
+        assert!(json.contains("\"super_proof\""), "super_proof must be in JSON when present");
     }
 
     #[test]
@@ -1871,8 +1934,8 @@ mod receipt_parsing_tests {
     }
 
     #[test]
-    fn test_receipt_without_super_proof_fails() {
-        // Receipt JSON without super_proof field - MUST FAIL
+    fn test_receipt_without_super_proof_parses_as_lite() {
+        // Receipt JSON without super_proof field - SHOULD SUCCEED (Receipt-Lite)
         let json = r#"{
             "spec_version": "2.0.0",
             "entry": {
@@ -1897,13 +1960,15 @@ mod receipt_parsing_tests {
             "anchors": []
         }"#;
 
-        let result = Receipt::from_json(json);
-        assert!(result.is_err(), "Receipt without super_proof MUST fail to parse");
+        let receipt = Receipt::from_json(json).expect("Receipt-Lite should parse");
+        assert!(receipt.super_proof.is_none(), "super_proof should be None for Receipt-Lite");
+        assert!(!receipt.has_super_proof());
+        assert_eq!(receipt.tier(), ReceiptTier::Lite);
     }
 
     #[test]
-    fn test_missing_super_proof_error_message() {
-        // Explicitly test that missing super_proof causes parse error
+    fn test_receipt_json_omits_none_super_proof() {
+        // Test serialization omits None super_proof
         let json = r#"{
             "spec_version": "2.0.0",
             "entry": {
@@ -1928,16 +1993,11 @@ mod receipt_parsing_tests {
             "anchors": []
         }"#;
 
-        let result = Receipt::from_json(json);
+        let receipt = Receipt::from_json(json).expect("Receipt-Lite should parse");
+        let serialized = receipt.to_json().expect("Should serialize");
 
-        // MUST fail - super_proof is mandatory
-        assert!(result.is_err());
-        let error = result.unwrap_err();
-        assert!(
-            error.to_string().contains("super_proof")
-                || error.to_string().contains("missing field"),
-            "Error should mention missing super_proof"
-        );
+        // super_proof should not be in JSON when None
+        assert!(!serialized.contains("super_proof"), "JSON should not contain super_proof field");
     }
 
     #[test]

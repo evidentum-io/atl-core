@@ -126,8 +126,16 @@ impl ReceiptVerifier {
             }
         }
 
-        // STEP 4: Verify Super-Tree Proof (MANDATORY - NO SKIP OPTION)
-        Self::verify_super_proof(&mut result, &receipt.proof.root_hash, &receipt.super_proof);
+        // STEP 4: Verify Super-Tree Proof (if present)
+        if let Some(super_proof) = &receipt.super_proof {
+            Self::verify_super_proof(&mut result, &receipt.proof.root_hash, super_proof);
+        } else {
+            // No super_proof: Receipt-Lite
+            // Mark as not verified (but not failed - just absent)
+            result.super_inclusion_valid = false;
+            result.super_consistency_valid = false;
+            // Leave genesis_super_root and super_root as [0; 32]
+        }
 
         // STEP 5: Verify Anchors (optional)
         if !self.options.skip_anchors && !receipt.anchors.is_empty() {
@@ -157,13 +165,13 @@ impl ReceiptVerifier {
             }
         }
 
-        // Determine overall validity (includes MANDATORY super verification)
-        result.is_valid = Self::compute_validity(&result);
+        // Update compute_validity to handle missing super_proof
+        result.is_valid = Self::compute_validity(&result, receipt.super_proof.is_some());
 
         result
     }
 
-    /// Verify Super-Tree proof (MANDATORY)
+    /// Verify Super-Tree proof (when present)
     ///
     /// Validates the Super-Tree inclusion and consistency proofs.
     /// Updates the result with super verification status and metadata.
@@ -250,23 +258,22 @@ impl ReceiptVerifier {
         }
     }
 
-    /// Compute overall validity (includes MANDATORY super verification)
+    /// Compute overall validity
     ///
-    /// A receipt is valid if:
-    /// - Basic checks pass (inclusion + signature)
-    /// - Super verification passes (inclusion + consistency)
-    /// - No errors occurred
-    const fn compute_validity(result: &VerificationResult) -> bool {
-        // Basic validity: inclusion + signature
+    /// For Receipt-Lite (no `super_proof`): valid if inclusion + signature pass
+    /// For Receipt with `super_proof`: valid if inclusion + signature + super pass
+    const fn compute_validity(result: &VerificationResult, has_super_proof: bool) -> bool {
         let basic_valid = result.inclusion_valid && result.signature_valid;
-
-        // Super proof validity (MANDATORY - both must be true)
-        let super_valid = result.super_inclusion_valid && result.super_consistency_valid;
-
-        // No errors
         let no_errors = result.errors.is_empty();
 
-        basic_valid && super_valid && no_errors
+        if has_super_proof {
+            // With super_proof: must pass super verification too
+            let super_valid = result.super_inclusion_valid && result.super_consistency_valid;
+            basic_valid && super_valid && no_errors
+        } else {
+            // Without super_proof: only basic checks required
+            basic_valid && no_errors
+        }
     }
 
     /// Verify receipt JSON string
@@ -323,14 +330,14 @@ mod super_verification_tests {
                 },
                 consistency_proof: None,
             },
-            super_proof: SuperProof {
+            super_proof: Some(SuperProof {
                 genesis_super_root: make_test_hash(0x22),
                 data_tree_index: 0,
                 super_tree_size: 1,
                 super_root: make_test_hash(0x22),
                 inclusion: vec![],
                 consistency_to_origin: vec![],
-            },
+            }),
             anchors: vec![],
         }
     }
@@ -353,8 +360,10 @@ mod super_verification_tests {
     fn test_super_inclusion_failure_invalidates_receipt() {
         let mut receipt = make_valid_receipt_with_super_proof();
         // Make super_inclusion fail by using wrong hash
-        receipt.super_proof.inclusion = vec![make_test_hash(0xff)];
-        receipt.super_proof.super_tree_size = 2;
+        if let Some(ref mut sp) = receipt.super_proof {
+            sp.inclusion = vec![make_test_hash(0xff)];
+            sp.super_tree_size = 2;
+        }
 
         let verifier = ReceiptVerifier::new(make_test_verifier());
         let result = verifier.verify(&receipt);
@@ -371,8 +380,10 @@ mod super_verification_tests {
     fn test_super_consistency_failure_invalidates_receipt() {
         let mut receipt = make_valid_receipt_with_super_proof();
         // Make consistency_to_origin fail
-        receipt.super_proof.super_tree_size = 2;
-        receipt.super_proof.consistency_to_origin = vec![make_test_hash(0xff)];
+        if let Some(ref mut sp) = receipt.super_proof {
+            sp.super_tree_size = 2;
+            sp.consistency_to_origin = vec![make_test_hash(0xff)];
+        }
 
         let verifier = ReceiptVerifier::new(make_test_verifier());
         let result = verifier.verify(&receipt);
@@ -440,7 +451,9 @@ mod super_verification_tests {
     #[test]
     fn test_invalid_genesis_super_root_hash() {
         let mut receipt = make_valid_receipt_with_super_proof();
-        receipt.super_proof.genesis_super_root = "invalid".to_string();
+        if let Some(ref mut sp) = receipt.super_proof {
+            sp.genesis_super_root = "invalid".to_string();
+        }
 
         let verifier = ReceiptVerifier::new(make_test_verifier());
         let result = verifier.verify(&receipt);
@@ -455,7 +468,9 @@ mod super_verification_tests {
     #[test]
     fn test_invalid_super_root_hash() {
         let mut receipt = make_valid_receipt_with_super_proof();
-        receipt.super_proof.super_root = "invalid".to_string();
+        if let Some(ref mut sp) = receipt.super_proof {
+            sp.super_root = "invalid".to_string();
+        }
 
         let verifier = ReceiptVerifier::new(make_test_verifier());
         let result = verifier.verify(&receipt);
@@ -512,14 +527,14 @@ mod receipt_super_proof_integration_tests {
                 },
                 consistency_proof: None,
             },
-            super_proof: SuperProof {
+            super_proof: Some(SuperProof {
                 genesis_super_root: make_hash(0x00),
                 data_tree_index: 3,
                 super_tree_size: 10,
                 super_root: make_hash(0xbb),
                 inclusion: vec![make_hash(0xcc), make_hash(0xdd)],
                 consistency_to_origin: vec![make_hash(0xee)],
-            },
+            }),
             anchors: vec![
                 // TSA anchor targeting data_tree_root
                 ReceiptAnchor::Rfc3161 {
@@ -545,9 +560,8 @@ mod receipt_super_proof_integration_tests {
     // === Missing super_proof Tests ===
 
     #[test]
-    fn test_receipt_without_super_proof_rejected() {
-        // Receipts without super_proof cannot be constructed - super_proof is mandatory
-        // Test through JSON parsing instead
+    fn test_receipt_without_super_proof_parses_and_verifies() {
+        // Receipt-Lite without super_proof should parse and verify
         let json = r#"{
             "spec_version": "2.0.0",
             "entry": {
@@ -572,10 +586,11 @@ mod receipt_super_proof_integration_tests {
             "anchors": []
         }"#;
 
-        let result = Receipt::from_json(json);
+        let receipt = Receipt::from_json(json).expect("Receipt-Lite should parse");
 
-        // MUST fail - receipts without super_proof cannot be parsed
-        assert!(result.is_err());
+        // Should parse successfully and have no super_proof
+        assert!(receipt.super_proof.is_none());
+        assert_eq!(receipt.tier(), crate::core::receipt::ReceiptTier::Lite);
     }
 
     #[test]
@@ -603,8 +618,9 @@ mod receipt_super_proof_integration_tests {
         let receipt = make_v2_receipt_full();
         let verifier = ReceiptVerifier::new(make_test_verifier());
 
-        // super_proof is a mandatory field (not Option)
-        assert_eq!(receipt.super_proof.data_tree_index, 3);
+        // super_proof is now Option
+        let super_proof = receipt.super_proof.as_ref().expect("Should have super_proof");
+        assert_eq!(super_proof.data_tree_index, 3);
 
         // Full verification should include super_proof validation
         let result = verifier.verify(&receipt);
@@ -618,8 +634,8 @@ mod receipt_super_proof_integration_tests {
     fn test_verify_receipt_full_super_proof_fields() {
         let receipt = make_v2_receipt_full();
 
-        // super_proof is directly accessible (not Option)
-        let super_proof = &receipt.super_proof;
+        // super_proof is now Option
+        let super_proof = receipt.super_proof.as_ref().expect("Should have super_proof");
 
         // Verify data_tree_index matches what we expect
         assert_eq!(super_proof.data_tree_index, 3);
@@ -642,7 +658,8 @@ mod receipt_super_proof_integration_tests {
             assert_eq!(target, "super_root");
 
             // target_hash should match super_proof.super_root
-            assert_eq!(target_hash, &receipt.super_proof.super_root);
+            let super_proof = receipt.super_proof.as_ref().expect("Should have super_proof");
+            assert_eq!(target_hash, &super_proof.super_root);
         }
     }
 
@@ -670,7 +687,9 @@ mod receipt_super_proof_integration_tests {
         let mut receipt = make_v2_receipt_full();
 
         // Corrupt the genesis_super_root
-        receipt.super_proof.genesis_super_root = "invalid".to_string();
+        if let Some(ref mut sp) = receipt.super_proof {
+            sp.genesis_super_root = "invalid".to_string();
+        }
 
         let verifier = ReceiptVerifier::new(make_test_verifier());
         let result = verifier.verify(&receipt);
@@ -686,7 +705,9 @@ mod receipt_super_proof_integration_tests {
         let mut receipt = make_v2_receipt_full();
 
         // Corrupt an inclusion hash
-        receipt.super_proof.inclusion[0] = "invalid".to_string();
+        if let Some(ref mut sp) = receipt.super_proof {
+            sp.inclusion[0] = "invalid".to_string();
+        }
 
         let verifier = ReceiptVerifier::new(make_test_verifier());
         let result = verifier.verify(&receipt);
@@ -704,7 +725,9 @@ mod receipt_super_proof_integration_tests {
         let mut receipt = make_v2_receipt_full();
 
         // Corrupt consistency_to_origin
-        receipt.super_proof.consistency_to_origin = vec!["invalid".to_string()];
+        if let Some(ref mut sp) = receipt.super_proof {
+            sp.consistency_to_origin = vec!["invalid".to_string()];
+        }
 
         let verifier = ReceiptVerifier::new(make_test_verifier());
         let result = verifier.verify(&receipt);
@@ -824,16 +847,15 @@ mod receipt_super_proof_integration_tests {
 
         assert_eq!(receipt.spec_version, restored.spec_version);
 
-        // super_proof is directly accessible (not Option)
-        assert_eq!(receipt.super_proof.genesis_super_root, restored.super_proof.genesis_super_root);
-        assert_eq!(receipt.super_proof.data_tree_index, restored.super_proof.data_tree_index);
-        assert_eq!(receipt.super_proof.super_tree_size, restored.super_proof.super_tree_size);
-        assert_eq!(receipt.super_proof.super_root, restored.super_proof.super_root);
-        assert_eq!(receipt.super_proof.inclusion, restored.super_proof.inclusion);
-        assert_eq!(
-            receipt.super_proof.consistency_to_origin,
-            restored.super_proof.consistency_to_origin
-        );
+        // super_proof is now Option
+        let sp_orig = receipt.super_proof.as_ref().expect("Should have super_proof");
+        let sp_rest = restored.super_proof.as_ref().expect("Should have super_proof");
+        assert_eq!(sp_orig.genesis_super_root, sp_rest.genesis_super_root);
+        assert_eq!(sp_orig.data_tree_index, sp_rest.data_tree_index);
+        assert_eq!(sp_orig.super_tree_size, sp_rest.super_tree_size);
+        assert_eq!(sp_orig.super_root, sp_rest.super_root);
+        assert_eq!(sp_orig.inclusion, sp_rest.inclusion);
+        assert_eq!(sp_orig.consistency_to_origin, sp_rest.consistency_to_origin);
     }
 
     #[test]

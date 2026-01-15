@@ -64,14 +64,14 @@ fn create_test_receipt() -> (Receipt, [u8; 32], SigningKey) {
             },
             consistency_proof: None,
         },
-        super_proof: SuperProof {
+        super_proof: Some(SuperProof {
             genesis_super_root: format_hash(&root_hash),
             data_tree_index: 0,
             super_tree_size: 1,
             super_root: format_hash(&root_hash),
             inclusion: vec![],
             consistency_to_origin: vec![],
-        },
+        }),
         anchors: vec![],
     };
 

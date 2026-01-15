@@ -108,14 +108,14 @@ fn create_test_receipt(signing_key: &SigningKey) -> Receipt {
             },
             consistency_proof: None,
         },
-        super_proof: atl_core::core::receipt::SuperProof {
+        super_proof: Some(atl_core::core::receipt::SuperProof {
             genesis_super_root: format_hash(&root_hash),
             data_tree_index: 0,
             super_tree_size: 1,
             super_root: format_hash(&root_hash),
             inclusion: vec![],
             consistency_to_origin: vec![],
-        },
+        }),
         anchors: vec![],
     }
 }
