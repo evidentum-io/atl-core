@@ -839,13 +839,20 @@ mod cross_receipt_tests {
     }
 
     fn make_v2_receipt_with_super_proof(genesis: u8, index: u64, size: u64) -> Receipt {
+        use crate::core::jcs::canonicalize_and_hash;
+        use crate::core::receipt::format_hash as fmt_hash;
+
+        let metadata = serde_json::json!({});
+        let metadata_hash = fmt_hash(&canonicalize_and_hash(&metadata));
+
         Receipt {
             spec_version: "2.0.0".to_string(),
             upgrade_url: None,
             entry: ReceiptEntry {
                 id: Uuid::nil(),
                 payload_hash: make_test_hash(0xcc),
-                metadata: serde_json::json!({}),
+                metadata_hash,
+                metadata,
             },
             proof: ReceiptProof {
                 tree_size: 1,
@@ -1459,11 +1466,13 @@ mod cross_receipt_verification_tests {
     }
 
     fn make_receipt_entry() -> ReceiptEntry {
-        ReceiptEntry {
-            id: Uuid::nil(),
-            payload_hash: make_hash(0x11),
-            metadata: serde_json::json!({}),
-        }
+        use crate::core::jcs::canonicalize_and_hash;
+        use crate::core::receipt::format_hash as fmt_hash;
+
+        let metadata = serde_json::json!({});
+        let metadata_hash = fmt_hash(&canonicalize_and_hash(&metadata));
+
+        ReceiptEntry { id: Uuid::nil(), payload_hash: make_hash(0x11), metadata_hash, metadata }
     }
 
     fn make_receipt_proof() -> ReceiptProof {

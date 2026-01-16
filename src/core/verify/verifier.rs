@@ -73,8 +73,12 @@ impl ReceiptVerifier {
             return result;
         }
 
-        // STEP 1: Reconstruct Leaf Hash
-        match reconstruct_leaf_hash(&receipt.entry.payload_hash, &receipt.entry.metadata) {
+        // STEP 1: Reconstruct Leaf Hash (with metadata_hash validation)
+        match reconstruct_leaf_hash(
+            &receipt.entry.payload_hash,
+            &receipt.entry.metadata_hash,
+            &receipt.entry.metadata,
+        ) {
             Ok(hash) => result.leaf_hash = hash,
             Err(e) => {
                 result.errors.push(e);
@@ -307,13 +311,20 @@ mod super_verification_tests {
     }
 
     fn make_valid_receipt_with_super_proof() -> Receipt {
+        use crate::core::jcs::canonicalize_and_hash;
+        use crate::core::receipt::format_hash;
+
+        let metadata = serde_json::json!({});
+        let metadata_hash = format_hash(&canonicalize_and_hash(&metadata));
+
         Receipt {
             spec_version: "2.0.0".to_string(),
             upgrade_url: None,
             entry: ReceiptEntry {
                 id: uuid::Uuid::nil(),
                 payload_hash: make_test_hash(0x11),
-                metadata: serde_json::json!({}),
+                metadata_hash,
+                metadata,
             },
             proof: ReceiptProof {
                 tree_size: 1,
@@ -504,13 +515,20 @@ mod receipt_super_proof_integration_tests {
     }
 
     fn make_v2_receipt_full() -> Receipt {
+        use crate::core::jcs::canonicalize_and_hash;
+        use crate::core::receipt::format_hash;
+
+        let metadata = serde_json::json!({});
+        let metadata_hash = format_hash(&canonicalize_and_hash(&metadata));
+
         Receipt {
             spec_version: "2.0.0".to_string(),
             upgrade_url: None,
             entry: ReceiptEntry {
                 id: uuid::Uuid::nil(),
                 payload_hash: make_hash(0x11),
-                metadata: serde_json::json!({}),
+                metadata_hash,
+                metadata,
             },
             proof: ReceiptProof {
                 tree_size: 10,
@@ -562,11 +580,14 @@ mod receipt_super_proof_integration_tests {
     #[test]
     fn test_receipt_without_super_proof_parses_and_verifies() {
         // Receipt-Lite without super_proof should parse and verify
+        // metadata_hash for empty JSON object {}:
+        // SHA256(JCS({})) = SHA256("{}") = 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
         let json = r#"{
             "spec_version": "2.0.0",
             "entry": {
                 "id": "00000000-0000-0000-0000-000000000000",
                 "payload_hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "metadata_hash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
                 "metadata": {}
             },
             "proof": {

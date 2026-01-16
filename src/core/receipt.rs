@@ -26,6 +26,7 @@
 //!   "entry": {
 //!     "id": "550e8400-e29b-41d4-a716-446655440000",
 //!     "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+//!     "metadata_hash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
 //!     "metadata": {}
 //!   },
 //!   "proof": {
@@ -147,6 +148,12 @@ pub struct ReceiptEntry {
 
     /// Payload hash ("sha256:...")
     pub payload_hash: String,
+
+    /// Metadata hash ("sha256:...")
+    ///
+    /// Pre-computed hash of canonicalized metadata (JCS).
+    /// Verifiers MUST check this matches `SHA256(JCS(metadata))`.
+    pub metadata_hash: String,
 
     /// Cleartext metadata (used for hash reconstruction during verification)
     pub metadata: serde_json::Value,
@@ -308,6 +315,21 @@ pub struct SuperProof {
     /// RFC 9162 consistency proof from Super-Tree size 1 to current size
     /// Format: list of "sha256:<hex>"
     pub consistency_to_origin: Vec<String>,
+}
+
+// ========== ReceiptEntry Implementation ==========
+
+impl ReceiptEntry {
+    /// Get the metadata hash as bytes
+    ///
+    /// Parses the "sha256:..." format and returns 32-byte hash.
+    ///
+    /// # Errors
+    ///
+    /// * `AtlError::InvalidHash` if hash format is invalid
+    pub fn metadata_hash_bytes(&self) -> AtlResult<Hash> {
+        parse_hash_string(&self.metadata_hash)
+    }
 }
 
 /// Receipt tier classification
@@ -740,6 +762,7 @@ mod tests {
             "entry": {
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "metadata_hash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
                 "metadata": {"filename": "test.pdf"}
             },
             "proof": {
@@ -784,6 +807,7 @@ mod tests {
             "entry": {
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "metadata_hash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
                 "metadata": {}
             },
             "proof": {
@@ -826,6 +850,7 @@ mod tests {
             "entry": {
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "metadata_hash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
                 "metadata": {}
             },
             "proof": {
@@ -927,6 +952,7 @@ mod tests {
             entry: ReceiptEntry {
                 id: Uuid::nil(),
                 payload_hash: "sha256:".to_string() + &"aa".repeat(32),
+                metadata_hash: "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a".to_string(),
                 metadata: serde_json::json!({}),
             },
             proof: ReceiptProof {
@@ -960,6 +986,7 @@ mod tests {
             entry: ReceiptEntry {
                 id: Uuid::nil(),
                 payload_hash: "sha256:".to_string() + &"aa".repeat(32),
+                metadata_hash: "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a".to_string(),
                 metadata: serde_json::json!({}),
             },
             proof: ReceiptProof {
@@ -992,6 +1019,7 @@ mod tests {
             "entry": {
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "metadata_hash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
                 "metadata": {}
             },
             "proof": {
@@ -1041,6 +1069,7 @@ mod tests {
             "entry": {
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "metadata_hash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
                 "metadata": {}
             },
             "proof": {
@@ -1085,6 +1114,7 @@ mod tests {
             "entry": {
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "metadata_hash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
                 "metadata": {}
             },
             "proof": {
@@ -1153,6 +1183,7 @@ mod tests {
             entry: ReceiptEntry {
                 id: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
                 payload_hash: "sha256:".to_string() + &"aa".repeat(32),
+                metadata_hash: "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a".to_string(),
                 metadata: serde_json::json!({}),
             },
             proof: ReceiptProof {
@@ -1207,6 +1238,7 @@ mod receipt_v2_tests {
             "entry": {
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "metadata_hash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
                 "metadata": {}
             },
             "proof": {
@@ -1239,6 +1271,7 @@ mod receipt_v2_tests {
             "entry": {
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "metadata_hash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
                 "metadata": {}
             },
             "proof": {
@@ -1269,6 +1302,7 @@ mod receipt_v2_tests {
             "entry": {
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "metadata_hash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
                 "metadata": {}
             },
             "proof": {
@@ -1309,6 +1343,9 @@ mod receipt_v2_tests {
             entry: ReceiptEntry {
                 id: Uuid::nil(),
                 payload_hash: make_test_hash(0xaa),
+                metadata_hash:
+                    "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+                        .to_string(),
                 metadata: serde_json::json!({}),
             },
             proof: ReceiptProof {
@@ -1346,6 +1383,9 @@ mod receipt_v2_tests {
             entry: ReceiptEntry {
                 id: Uuid::nil(),
                 payload_hash: make_test_hash(0xaa),
+                metadata_hash:
+                    "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+                        .to_string(),
                 metadata: serde_json::json!({}),
             },
             proof: ReceiptProof {
@@ -1413,6 +1453,7 @@ mod receipt_v2_tests {
             "entry": {
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "metadata_hash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
                 "metadata": {}
             },
             "proof": {
@@ -1451,6 +1492,9 @@ mod receipt_v2_tests {
             entry: ReceiptEntry {
                 id: Uuid::nil(),
                 payload_hash: make_test_hash(0xaa),
+                metadata_hash:
+                    "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+                        .to_string(),
                 metadata: serde_json::json!({}),
             },
             proof: ReceiptProof {
@@ -1941,6 +1985,7 @@ mod receipt_parsing_tests {
             "entry": {
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "metadata_hash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
                 "metadata": {}
             },
             "proof": {
@@ -1974,6 +2019,7 @@ mod receipt_parsing_tests {
             "entry": {
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "metadata_hash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
                 "metadata": {}
             },
             "proof": {
@@ -2011,6 +2057,7 @@ mod receipt_parsing_tests {
             "entry": {
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "metadata_hash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
                 "metadata": {}
             },
             "proof": {

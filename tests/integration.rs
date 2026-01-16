@@ -85,12 +85,15 @@ fn create_test_receipt(signing_key: &SigningKey) -> Receipt {
     let checkpoint =
         Checkpoint::new(origin, tree_size, timestamp, root_hash, signature_bytes, key_id);
 
+    let metadata_hash = format_hash(&canonicalize_and_hash(&metadata));
+
     Receipt {
         spec_version: RECEIPT_SPEC_VERSION.to_string(),
         upgrade_url: None,
         entry: atl_core::core::receipt::ReceiptEntry {
             id: entry_id,
             payload_hash: format_hash(&payload_hash),
+            metadata_hash,
             metadata,
         },
         proof: atl_core::core::receipt::ReceiptProof {
@@ -320,6 +323,7 @@ fn test_invalid_receipt_version() {
         "entry": {
             "id": "550e8400-e29b-41d4-a716-446655440000",
             "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "metadata_hash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
             "metadata": {}
         },
         "proof": {
@@ -357,6 +361,7 @@ fn test_invalid_hash_format() {
         "entry": {
             "id": "550e8400-e29b-41d4-a716-446655440000",
             "payload_hash": "invalid:notahash",
+            "metadata_hash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
             "metadata": {}
         },
         "proof": {
@@ -787,4 +792,47 @@ fn test_receipt_with_rfc3161_anchor_feature_disabled() {
     assert_eq!(anchor_result.anchor_type, "rfc3161");
     assert!(!anchor_result.is_valid);
     assert!(anchor_result.error.as_ref().unwrap().contains("feature"));
+}
+
+// ========== Metadata Hash Verification Tests ==========
+
+#[test]
+fn test_receipt_with_wrong_metadata_hash_fails() {
+    use atl_core::VerificationError;
+
+    let (signing_key, verifying_key) = generate_test_keypair();
+    let mut receipt = create_test_receipt(&signing_key);
+
+    // Corrupt the metadata_hash
+    receipt.entry.metadata_hash = format_hash(&[0xff; 32]);
+
+    let verifier = atl_core::core::verify::ReceiptVerifier::new(
+        CheckpointVerifier::from_bytes(&verifying_key.to_bytes()).unwrap(),
+    );
+    let result = verifier.verify(&receipt);
+
+    assert!(!result.is_valid);
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| matches!(e, VerificationError::MetadataHashMismatch { .. })));
+}
+
+#[test]
+fn test_receipt_with_valid_metadata_hash_passes() {
+    use atl_core::VerificationError;
+
+    let (signing_key, verifying_key) = generate_test_keypair();
+    let receipt = create_test_receipt(&signing_key);
+
+    let verifier = atl_core::core::verify::ReceiptVerifier::new(
+        CheckpointVerifier::from_bytes(&verifying_key.to_bytes()).unwrap(),
+    );
+    let result = verifier.verify(&receipt);
+
+    // Should pass (or fail for other reasons like signature, not metadata_hash)
+    assert!(result
+        .errors
+        .iter()
+        .all(|e| !matches!(e, VerificationError::MetadataHashMismatch { .. })));
 }

@@ -6,7 +6,9 @@
 use crate::core::checkpoint::{parse_hash, parse_signature, Checkpoint, CheckpointVerifier};
 use crate::core::jcs::canonicalize_and_hash;
 use crate::core::merkle::{compute_leaf_hash, verify_inclusion, InclusionProof};
-use crate::core::receipt::{ReceiptAnchor, ANCHOR_TARGET_DATA_TREE_ROOT, ANCHOR_TARGET_SUPER_ROOT};
+use crate::core::receipt::{
+    format_hash, ReceiptAnchor, ANCHOR_TARGET_DATA_TREE_ROOT, ANCHOR_TARGET_SUPER_ROOT,
+};
 
 use super::{AnchorVerificationResult, VerificationError};
 
@@ -51,14 +53,16 @@ impl AnchorVerificationContext {
 
 // ========== Internal Helper Functions ==========
 
-/// Reconstruct leaf hash from payload hash and metadata
+/// Reconstruct leaf hash from payload hash, `metadata_hash`, and metadata
 ///
 /// STEP 1 of verification algorithm:
 /// 1. Decode `payload_hash` from "sha256:..."
-/// 2. Compute `metadata_hash` = SHA256(JCS(metadata))
-/// 3. Compute `leaf_hash` = SHA256(0x00 || `payload_hash` || `metadata_hash`)
+/// 2. Compute `computed_metadata_hash` = SHA256(JCS(metadata))
+/// 3. Decode and validate `metadata_hash` from receipt
+/// 4. Compute `leaf_hash` = SHA256(0x00 || `payload_hash` || `metadata_hash`)
 pub fn reconstruct_leaf_hash(
     payload_hash_str: &str,
+    metadata_hash_str: &str,
     metadata: &serde_json::Value,
 ) -> Result<[u8; 32], VerificationError> {
     // Decode payload hash
@@ -68,11 +72,26 @@ pub fn reconstruct_leaf_hash(
             message: e.to_string(),
         })?;
 
+    // Decode metadata hash from receipt
+    let metadata_hash_from_receipt =
+        parse_hash(metadata_hash_str).map_err(|e| VerificationError::InvalidHash {
+            field: "entry.metadata_hash".to_string(),
+            message: e.to_string(),
+        })?;
+
     // Compute metadata hash via JCS
-    let metadata_hash = canonicalize_and_hash(metadata);
+    let computed_metadata_hash = canonicalize_and_hash(metadata);
+
+    // Validate metadata hash matches
+    if metadata_hash_from_receipt != computed_metadata_hash {
+        return Err(VerificationError::MetadataHashMismatch {
+            expected: metadata_hash_str.to_string(),
+            actual: format_hash(&computed_metadata_hash),
+        });
+    }
 
     // Compute leaf hash: SHA256(0x00 || payload_hash || metadata_hash)
-    Ok(compute_leaf_hash(&payload_hash, &metadata_hash))
+    Ok(compute_leaf_hash(&payload_hash, &computed_metadata_hash))
 }
 
 /// Verify inclusion proof
@@ -235,11 +254,6 @@ fn verify_rfc3161_anchor(
 fn use_constant_time_eq(a: &Hash, b: &Hash) -> bool {
     use subtle::ConstantTimeEq;
     a.ct_eq(b).into()
-}
-
-/// Format hash as `"sha256:..."` string
-fn format_hash(hash: &Hash) -> String {
-    format!("sha256:{}", hex::encode(hash))
 }
 
 /// Parse hash string `"sha256:..."` to 32-byte array
@@ -614,5 +628,99 @@ mod rfc3161_target_tests {
 
         assert!(!result.is_valid);
         assert!(result.error.is_some());
+    }
+}
+
+#[cfg(test)]
+mod metadata_hash_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn make_test_hash(byte: u8) -> String {
+        format!("sha256:{}", hex::encode([byte; 32]))
+    }
+
+    #[test]
+    fn test_reconstruct_leaf_hash_valid() {
+        let metadata = json!({});
+        let computed_hash = crate::core::jcs::canonicalize_and_hash(&metadata);
+        let metadata_hash_str = crate::core::receipt::format_hash(&computed_hash);
+        let payload_hash_str = make_test_hash(0xaa);
+
+        let result = reconstruct_leaf_hash(&payload_hash_str, &metadata_hash_str, &metadata);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_reconstruct_leaf_hash_metadata_mismatch() {
+        let metadata = json!({});
+        let wrong_hash = make_test_hash(0xff);
+        let payload_hash_str = make_test_hash(0xaa);
+
+        let result = reconstruct_leaf_hash(&payload_hash_str, &wrong_hash, &metadata);
+
+        assert!(matches!(result, Err(VerificationError::MetadataHashMismatch { .. })));
+    }
+
+    #[test]
+    fn test_reconstruct_leaf_hash_invalid_metadata_hash_format() {
+        let metadata = json!({});
+        let invalid_hash = "invalid";
+        let payload_hash_str = make_test_hash(0xaa);
+
+        let result = reconstruct_leaf_hash(&payload_hash_str, invalid_hash, &metadata);
+
+        assert!(matches!(
+            result,
+            Err(VerificationError::InvalidHash { field, .. }) if field == "entry.metadata_hash"
+        ));
+    }
+
+    #[test]
+    fn test_reconstruct_leaf_hash_invalid_payload_hash_format() {
+        let metadata = json!({});
+        let computed_hash = crate::core::jcs::canonicalize_and_hash(&metadata);
+        let metadata_hash_str = crate::core::receipt::format_hash(&computed_hash);
+        let invalid_payload = "invalid";
+
+        let result = reconstruct_leaf_hash(invalid_payload, &metadata_hash_str, &metadata);
+
+        assert!(matches!(
+            result,
+            Err(VerificationError::InvalidHash { field, .. }) if field == "entry.payload_hash"
+        ));
+    }
+
+    #[test]
+    fn test_reconstruct_leaf_hash_complex_metadata() {
+        let metadata = json!({
+            "filename": "test.pdf",
+            "size": 1024,
+            "tags": ["important", "signed"]
+        });
+        let computed_hash = crate::core::jcs::canonicalize_and_hash(&metadata);
+        let metadata_hash_str = crate::core::receipt::format_hash(&computed_hash);
+        let payload_hash_str = make_test_hash(0xaa);
+
+        let result = reconstruct_leaf_hash(&payload_hash_str, &metadata_hash_str, &metadata);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_reconstruct_leaf_hash_different_metadata_fails() {
+        // Hash computed for one metadata
+        let metadata1 = json!({"key": "value1"});
+        let computed_hash1 = crate::core::jcs::canonicalize_and_hash(&metadata1);
+        let metadata_hash_str = crate::core::receipt::format_hash(&computed_hash1);
+
+        // But we verify against different metadata
+        let metadata2 = json!({"key": "value2"});
+        let payload_hash_str = make_test_hash(0xaa);
+
+        let result = reconstruct_leaf_hash(&payload_hash_str, &metadata_hash_str, &metadata2);
+
+        assert!(matches!(result, Err(VerificationError::MetadataHashMismatch { .. })));
     }
 }
