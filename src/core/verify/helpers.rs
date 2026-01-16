@@ -6,7 +6,7 @@
 use crate::core::checkpoint::{parse_hash, parse_signature, Checkpoint, CheckpointVerifier};
 use crate::core::jcs::canonicalize_and_hash;
 use crate::core::merkle::{compute_leaf_hash, verify_inclusion, InclusionProof};
-use crate::core::receipt::{ReceiptAnchor, ANCHOR_TARGET_DATA_TREE_ROOT, ANCHOR_TARGET_SUPER_ROOT};
+use crate::core::receipt::{format_hash, ReceiptAnchor, ANCHOR_TARGET_DATA_TREE_ROOT, ANCHOR_TARGET_SUPER_ROOT};
 
 use super::{AnchorVerificationResult, VerificationError};
 
@@ -51,14 +51,16 @@ impl AnchorVerificationContext {
 
 // ========== Internal Helper Functions ==========
 
-/// Reconstruct leaf hash from payload hash and metadata
+/// Reconstruct leaf hash from payload hash, `metadata_hash`, and metadata
 ///
 /// STEP 1 of verification algorithm:
 /// 1. Decode `payload_hash` from "sha256:..."
-/// 2. Compute `metadata_hash` = SHA256(JCS(metadata))
-/// 3. Compute `leaf_hash` = SHA256(0x00 || `payload_hash` || `metadata_hash`)
+/// 2. Compute `computed_metadata_hash` = SHA256(JCS(metadata))
+/// 3. Decode and validate `metadata_hash` from receipt
+/// 4. Compute `leaf_hash` = SHA256(0x00 || `payload_hash` || `metadata_hash`)
 pub fn reconstruct_leaf_hash(
     payload_hash_str: &str,
+    metadata_hash_str: &str,
     metadata: &serde_json::Value,
 ) -> Result<[u8; 32], VerificationError> {
     // Decode payload hash
@@ -68,11 +70,26 @@ pub fn reconstruct_leaf_hash(
             message: e.to_string(),
         })?;
 
+    // Decode metadata hash from receipt
+    let metadata_hash_from_receipt =
+        parse_hash(metadata_hash_str).map_err(|e| VerificationError::InvalidHash {
+            field: "entry.metadata_hash".to_string(),
+            message: e.to_string(),
+        })?;
+
     // Compute metadata hash via JCS
-    let metadata_hash = canonicalize_and_hash(metadata);
+    let computed_metadata_hash = canonicalize_and_hash(metadata);
+
+    // Validate metadata hash matches
+    if metadata_hash_from_receipt != computed_metadata_hash {
+        return Err(VerificationError::MetadataHashMismatch {
+            expected: metadata_hash_str.to_string(),
+            actual: format_hash(&computed_metadata_hash),
+        });
+    }
 
     // Compute leaf hash: SHA256(0x00 || payload_hash || metadata_hash)
-    Ok(compute_leaf_hash(&payload_hash, &metadata_hash))
+    Ok(compute_leaf_hash(&payload_hash, &computed_metadata_hash))
 }
 
 /// Verify inclusion proof
@@ -235,11 +252,6 @@ fn verify_rfc3161_anchor(
 fn use_constant_time_eq(a: &Hash, b: &Hash) -> bool {
     use subtle::ConstantTimeEq;
     a.ct_eq(b).into()
-}
-
-/// Format hash as `"sha256:..."` string
-fn format_hash(hash: &Hash) -> String {
-    format!("sha256:{}", hex::encode(hash))
 }
 
 /// Parse hash string `"sha256:..."` to 32-byte array

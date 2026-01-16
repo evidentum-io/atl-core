@@ -85,12 +85,16 @@ fn create_test_receipt(signing_key: &SigningKey) -> Receipt {
     let checkpoint =
         Checkpoint::new(origin, tree_size, timestamp, root_hash, signature_bytes, key_id);
 
+    use atl_core::core::jcs::canonicalize_and_hash;
+    let metadata_hash = format_hash(&canonicalize_and_hash(&metadata));
+
     Receipt {
         spec_version: RECEIPT_SPEC_VERSION.to_string(),
         upgrade_url: None,
         entry: atl_core::core::receipt::ReceiptEntry {
             id: entry_id,
             payload_hash: format_hash(&payload_hash),
+            metadata_hash,
             metadata,
         },
         proof: atl_core::core::receipt::ReceiptProof {

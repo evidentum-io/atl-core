@@ -45,10 +45,18 @@ fn create_test_receipt() -> (Receipt, [u8; 32], SigningKey) {
     checkpoint.signature = signature.to_bytes();
 
     // Create receipt
+    use crate::core::jcs::canonicalize_and_hash;
+    let metadata_hash = format_hash(&canonicalize_and_hash(&metadata));
+
     let receipt = Receipt {
         spec_version: "2.0.0".to_string(),
         upgrade_url: None,
-        entry: ReceiptEntry { id: Uuid::nil(), payload_hash: format_hash(&payload_hash), metadata },
+        entry: ReceiptEntry {
+            id: Uuid::nil(),
+            payload_hash: format_hash(&payload_hash),
+            metadata_hash,
+            metadata,
+        },
         proof: ReceiptProof {
             leaf_index: 0,
             tree_size: 1,
@@ -296,11 +304,15 @@ fn test_invalid_json_returns_error() {
 
 #[test]
 fn test_reconstruct_leaf_hash() {
+    use crate::core::jcs::canonicalize_and_hash;
+
     let payload_hash = [0xAAu8; 32];
     let metadata = json!({"test": "value"});
+    let computed_metadata_hash = canonicalize_and_hash(&metadata);
 
     let payload_hash_str = format_hash(&payload_hash);
-    let result = reconstruct_leaf_hash(&payload_hash_str, &metadata);
+    let metadata_hash_str = format_hash(&computed_metadata_hash);
+    let result = reconstruct_leaf_hash(&payload_hash_str, &metadata_hash_str, &metadata);
 
     assert!(result.is_ok());
     let leaf_hash = result.unwrap();
@@ -309,8 +321,13 @@ fn test_reconstruct_leaf_hash() {
 
 #[test]
 fn test_reconstruct_leaf_hash_invalid_format() {
+    use crate::core::jcs::canonicalize_and_hash;
+
     let metadata = json!({"test": "value"});
-    let result = reconstruct_leaf_hash("invalid_hash", &metadata);
+    let computed_metadata_hash = canonicalize_and_hash(&metadata);
+    let metadata_hash_str = format_hash(&computed_metadata_hash);
+
+    let result = reconstruct_leaf_hash("invalid_hash", &metadata_hash_str, &metadata);
     assert!(result.is_err());
 }
 
