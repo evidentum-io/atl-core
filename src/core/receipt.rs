@@ -1343,7 +1343,9 @@ mod receipt_v2_tests {
             entry: ReceiptEntry {
                 id: Uuid::nil(),
                 payload_hash: make_test_hash(0xaa),
-                metadata_hash: "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a".to_string(),
+                metadata_hash:
+                    "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+                        .to_string(),
                 metadata: serde_json::json!({}),
             },
             proof: ReceiptProof {
@@ -1381,7 +1383,9 @@ mod receipt_v2_tests {
             entry: ReceiptEntry {
                 id: Uuid::nil(),
                 payload_hash: make_test_hash(0xaa),
-                metadata_hash: "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a".to_string(),
+                metadata_hash:
+                    "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+                        .to_string(),
                 metadata: serde_json::json!({}),
             },
             proof: ReceiptProof {
@@ -1488,7 +1492,9 @@ mod receipt_v2_tests {
             entry: ReceiptEntry {
                 id: Uuid::nil(),
                 payload_hash: make_test_hash(0xaa),
-                metadata_hash: "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a".to_string(),
+                metadata_hash:
+                    "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+                        .to_string(),
                 metadata: serde_json::json!({}),
             },
             proof: ReceiptProof {

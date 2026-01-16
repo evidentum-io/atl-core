@@ -1472,12 +1472,7 @@ mod cross_receipt_verification_tests {
         let metadata = serde_json::json!({});
         let metadata_hash = fmt_hash(&canonicalize_and_hash(&metadata));
 
-        ReceiptEntry {
-            id: Uuid::nil(),
-            payload_hash: make_hash(0x11),
-            metadata_hash,
-            metadata,
-        }
+        ReceiptEntry { id: Uuid::nil(), payload_hash: make_hash(0x11), metadata_hash, metadata }
     }
 
     fn make_receipt_proof() -> ReceiptProof {

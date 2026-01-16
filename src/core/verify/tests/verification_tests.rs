@@ -45,7 +45,6 @@ fn create_test_receipt() -> (Receipt, [u8; 32], SigningKey) {
     checkpoint.signature = signature.to_bytes();
 
     // Create receipt
-    use crate::core::jcs::canonicalize_and_hash;
     let metadata_hash = format_hash(&canonicalize_and_hash(&metadata));
 
     let receipt = Receipt {

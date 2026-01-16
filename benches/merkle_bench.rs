@@ -247,6 +247,7 @@ fn bench_receipt_parsing(c: &mut Criterion) {
         "entry": {
             "id": "550e8400-e29b-41d4-a716-446655440000",
             "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "metadata_hash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
             "metadata": {
                 "filename": "document.pdf",
                 "size": 1024567,

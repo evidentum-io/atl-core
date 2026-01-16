@@ -85,7 +85,6 @@ fn create_test_receipt(signing_key: &SigningKey) -> Receipt {
     let checkpoint =
         Checkpoint::new(origin, tree_size, timestamp, root_hash, signature_bytes, key_id);
 
-    use atl_core::core::jcs::canonicalize_and_hash;
     let metadata_hash = format_hash(&canonicalize_and_hash(&metadata));
 
     Receipt {
@@ -813,10 +812,10 @@ fn test_receipt_with_wrong_metadata_hash_fails() {
     let result = verifier.verify(&receipt);
 
     assert!(!result.is_valid);
-    assert!(result.errors.iter().any(|e| matches!(
-        e,
-        VerificationError::MetadataHashMismatch { .. }
-    )));
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| matches!(e, VerificationError::MetadataHashMismatch { .. })));
 }
 
 #[test]
@@ -832,8 +831,8 @@ fn test_receipt_with_valid_metadata_hash_passes() {
     let result = verifier.verify(&receipt);
 
     // Should pass (or fail for other reasons like signature, not metadata_hash)
-    assert!(result.errors.iter().all(|e| !matches!(
-        e,
-        VerificationError::MetadataHashMismatch { .. }
-    )));
+    assert!(result
+        .errors
+        .iter()
+        .all(|e| !matches!(e, VerificationError::MetadataHashMismatch { .. })));
 }

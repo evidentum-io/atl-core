@@ -6,7 +6,9 @@
 use crate::core::checkpoint::{parse_hash, parse_signature, Checkpoint, CheckpointVerifier};
 use crate::core::jcs::canonicalize_and_hash;
 use crate::core::merkle::{compute_leaf_hash, verify_inclusion, InclusionProof};
-use crate::core::receipt::{format_hash, ReceiptAnchor, ANCHOR_TARGET_DATA_TREE_ROOT, ANCHOR_TARGET_SUPER_ROOT};
+use crate::core::receipt::{
+    format_hash, ReceiptAnchor, ANCHOR_TARGET_DATA_TREE_ROOT, ANCHOR_TARGET_SUPER_ROOT,
+};
 
 use super::{AnchorVerificationResult, VerificationError};
 
@@ -645,11 +647,7 @@ mod metadata_hash_tests {
         let metadata_hash_str = crate::core::receipt::format_hash(&computed_hash);
         let payload_hash_str = make_test_hash(0xaa);
 
-        let result = reconstruct_leaf_hash(
-            &payload_hash_str,
-            &metadata_hash_str,
-            &metadata,
-        );
+        let result = reconstruct_leaf_hash(&payload_hash_str, &metadata_hash_str, &metadata);
 
         assert!(result.is_ok());
     }
@@ -660,16 +658,9 @@ mod metadata_hash_tests {
         let wrong_hash = make_test_hash(0xff);
         let payload_hash_str = make_test_hash(0xaa);
 
-        let result = reconstruct_leaf_hash(
-            &payload_hash_str,
-            &wrong_hash,
-            &metadata,
-        );
+        let result = reconstruct_leaf_hash(&payload_hash_str, &wrong_hash, &metadata);
 
-        assert!(matches!(
-            result,
-            Err(VerificationError::MetadataHashMismatch { .. })
-        ));
+        assert!(matches!(result, Err(VerificationError::MetadataHashMismatch { .. })));
     }
 
     #[test]
@@ -678,11 +669,7 @@ mod metadata_hash_tests {
         let invalid_hash = "invalid";
         let payload_hash_str = make_test_hash(0xaa);
 
-        let result = reconstruct_leaf_hash(
-            &payload_hash_str,
-            invalid_hash,
-            &metadata,
-        );
+        let result = reconstruct_leaf_hash(&payload_hash_str, invalid_hash, &metadata);
 
         assert!(matches!(
             result,
@@ -697,11 +684,7 @@ mod metadata_hash_tests {
         let metadata_hash_str = crate::core::receipt::format_hash(&computed_hash);
         let invalid_payload = "invalid";
 
-        let result = reconstruct_leaf_hash(
-            invalid_payload,
-            &metadata_hash_str,
-            &metadata,
-        );
+        let result = reconstruct_leaf_hash(invalid_payload, &metadata_hash_str, &metadata);
 
         assert!(matches!(
             result,
@@ -720,11 +703,7 @@ mod metadata_hash_tests {
         let metadata_hash_str = crate::core::receipt::format_hash(&computed_hash);
         let payload_hash_str = make_test_hash(0xaa);
 
-        let result = reconstruct_leaf_hash(
-            &payload_hash_str,
-            &metadata_hash_str,
-            &metadata,
-        );
+        let result = reconstruct_leaf_hash(&payload_hash_str, &metadata_hash_str, &metadata);
 
         assert!(result.is_ok());
     }
@@ -740,15 +719,8 @@ mod metadata_hash_tests {
         let metadata2 = json!({"key": "value2"});
         let payload_hash_str = make_test_hash(0xaa);
 
-        let result = reconstruct_leaf_hash(
-            &payload_hash_str,
-            &metadata_hash_str,
-            &metadata2,
-        );
+        let result = reconstruct_leaf_hash(&payload_hash_str, &metadata_hash_str, &metadata2);
 
-        assert!(matches!(
-            result,
-            Err(VerificationError::MetadataHashMismatch { .. })
-        ));
+        assert!(matches!(result, Err(VerificationError::MetadataHashMismatch { .. })));
     }
 }
