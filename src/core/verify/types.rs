@@ -148,6 +148,17 @@ pub enum VerificationError {
 
     /// Unsupported receipt version
     UnsupportedVersion(String),
+
+    /// Metadata hash mismatch
+    ///
+    /// The `metadata_hash` in the receipt does not match the computed
+    /// hash of the canonicalized metadata (JCS).
+    MetadataHashMismatch {
+        /// Expected hash (from receipt)
+        expected: String,
+        /// Actual hash (computed from metadata)
+        actual: String,
+    },
 }
 
 /// Options for verification
@@ -192,6 +203,9 @@ impl std::fmt::Display for VerificationError {
             Self::MissingSuperProof => write!(f, "Missing super_proof (required in v2.0)"),
             Self::UnsupportedVersion(version) => {
                 write!(f, "Unsupported receipt version: {version}")
+            }
+            Self::MetadataHashMismatch { expected, actual } => {
+                write!(f, "Metadata hash mismatch: expected {expected}, got {actual}")
             }
         }
     }
