@@ -83,10 +83,7 @@ impl ReceiptVerifier {
     /// > only the anchor verification."
     #[must_use]
     pub fn anchor_only() -> Self {
-        Self {
-            checkpoint_verifier: None,
-            options: VerifyOptions::default(),
-        }
+        Self { checkpoint_verifier: None, options: VerifyOptions::default() }
     }
 
     /// Create a verifier with a trusted public key
@@ -113,19 +110,13 @@ impl ReceiptVerifier {
     /// the external anchors.
     #[must_use]
     pub fn with_key(verifier: CheckpointVerifier) -> Self {
-        Self {
-            checkpoint_verifier: Some(verifier),
-            options: VerifyOptions::default(),
-        }
+        Self { checkpoint_verifier: Some(verifier), options: VerifyOptions::default() }
     }
 
     /// Create verifier with custom options (anchor-only)
     #[must_use]
     pub const fn anchor_only_with_options(options: VerifyOptions) -> Self {
-        Self {
-            checkpoint_verifier: None,
-            options,
-        }
+        Self { checkpoint_verifier: None, options }
     }
 
     /// Create verifier with key and custom options
@@ -134,10 +125,7 @@ impl ReceiptVerifier {
         verifier: CheckpointVerifier,
         options: VerifyOptions,
     ) -> Self {
-        Self {
-            checkpoint_verifier: Some(verifier),
-            options,
-        }
+        Self { checkpoint_verifier: Some(verifier), options }
     }
 
     /// Create a new verifier with a trusted public key
@@ -305,8 +293,18 @@ impl ReceiptVerifier {
             }
         }
 
-        // Update compute_validity to handle missing super_proof
-        result.is_valid = Self::compute_validity(&result, receipt.super_proof.is_some());
+        // Check trust anchor availability (before compute_validity)
+        let has_anchor_trust = result.anchor_results.iter().any(|a| a.is_valid);
+        let has_signature_trust = result.signature_status == SignatureStatus::Verified;
+
+        if !has_anchor_trust && !has_signature_trust && result.errors.is_empty() {
+            // Add informative error about missing trust anchor
+            result.errors.push(VerificationError::NoTrustAnchor);
+        }
+
+        // Compute final validity
+        result.is_valid =
+            Self::compute_validity(&result, &self.options, receipt.super_proof.is_some());
 
         result
     }
@@ -468,22 +466,79 @@ impl ReceiptVerifier {
         }
     }
 
-    /// Compute overall validity
+    /// Compute overall validity according to ATL Protocol v2.0 trust model
     ///
-    /// For Receipt-Lite (no `super_proof`): valid if inclusion + signature pass
-    /// For Receipt with `super_proof`: valid if inclusion + signature + super pass
-    const fn compute_validity(result: &VerificationResult, has_super_proof: bool) -> bool {
-        let basic_valid = result.inclusion_valid && result.signature_valid;
-        let no_errors = result.errors.is_empty();
+    /// # Trust Model
+    ///
+    /// Per ATL Protocol v2.0 Section 1.2:
+    /// > "Verifiers do NOT need to trust the Log Operator. Trust is derived
+    /// > exclusively from external, independent anchors."
+    ///
+    /// # Validity Rules
+    ///
+    /// A receipt is valid if ALL of the following are true:
+    ///
+    /// 1. **Inclusion proof passes** - The entry is verifiably in the Merkle tree.
+    ///
+    /// 2. **Super-Tree proof passes (if present)** - For Receipt-Full, the data tree
+    ///    is verifiably part of the Super-Tree with valid consistency to origin.
+    ///
+    /// 3. **Signature requirement met (based on mode)**:
+    ///    - `Require`: `signature_status` must be `Verified`
+    ///    - `Optional`: Any status is acceptable
+    ///    - `Skip`: Any status is acceptable
+    ///
+    /// 4. **Trust anchor exists**:
+    ///    - Either verified signature (in `Require` mode), OR
+    ///    - At least one valid external anchor (RFC 3161 or Bitcoin OTS)
+    ///
+    /// 5. **No verification errors** - `result.errors` is empty.
+    ///
+    /// # Protocol Reference
+    ///
+    /// Section 5.2:
+    /// > "Even if the checkpoint signature cannot be verified (unknown key),
+    /// > the receipt MAY still be valid if anchor verification succeeds."
+    ///
+    /// Section 5.5:
+    /// > "A receipt without any verified anchors SHOULD be treated as untrustworthy."
+    fn compute_validity(
+        result: &VerificationResult,
+        options: &VerifyOptions,
+        has_super_proof: bool,
+    ) -> bool {
+        use super::types::{SignatureMode, SignatureStatus};
 
-        if has_super_proof {
-            // With super_proof: must pass super verification too
-            let super_valid = result.super_inclusion_valid && result.super_consistency_valid;
-            basic_valid && super_valid && no_errors
-        } else {
-            // Without super_proof: only basic checks required
-            basic_valid && no_errors
+        // Rule 1: Inclusion must pass
+        if !result.inclusion_valid {
+            return false;
         }
+
+        // Rule 2: Super-Tree must pass (if present)
+        if has_super_proof && (!result.super_inclusion_valid || !result.super_consistency_valid) {
+            return false;
+        }
+
+        // Rule 3: Check signature based on mode
+        if options.signature_mode == SignatureMode::Require
+            && result.signature_status != SignatureStatus::Verified
+        {
+            return false;
+        }
+
+        // Rule 4: Trust anchor required
+        // A verified signature (in any mode except Skip) is a trust anchor
+        // Additionally, any valid external anchor also provides trust
+        let has_signature_trust = result.signature_status == SignatureStatus::Verified;
+        let has_anchor_trust = result.anchor_results.iter().any(|a| a.is_valid);
+
+        if !has_signature_trust && !has_anchor_trust {
+            // No trust anchor available
+            return false;
+        }
+
+        // Rule 5: No errors
+        result.errors.is_empty()
     }
 
     /// Verify receipt JSON string
@@ -497,3 +552,287 @@ impl ReceiptVerifier {
     }
 }
 
+#[cfg(test)]
+mod compute_validity_tests {
+    use super::*;
+    use crate::core::verify::types::{
+        AnchorVerificationResult, SignatureMode, SignatureStatus, VerificationError,
+        VerificationResult, VerifyOptions,
+    };
+
+    fn make_base_result() -> VerificationResult {
+        VerificationResult {
+            is_valid: false,
+            leaf_hash: [0; 32],
+            root_hash: [0; 32],
+            tree_size: 1,
+            timestamp: 1,
+            signature_valid: false,
+            signature_status: SignatureStatus::Skipped,
+            inclusion_valid: true, // Start valid
+            consistency_valid: None,
+            super_inclusion_valid: true,
+            super_consistency_valid: true,
+            genesis_super_root: [0; 32],
+            super_root: [0; 32],
+            data_tree_index: 0,
+            super_tree_size: 1,
+            anchor_results: vec![],
+            errors: vec![],
+        }
+    }
+
+    fn make_valid_anchor() -> AnchorVerificationResult {
+        AnchorVerificationResult {
+            anchor_type: "rfc3161".to_string(),
+            is_valid: true,
+            timestamp: Some(1),
+            error: None,
+        }
+    }
+
+    fn make_invalid_anchor() -> AnchorVerificationResult {
+        AnchorVerificationResult {
+            anchor_type: "rfc3161".to_string(),
+            is_valid: false,
+            timestamp: Some(1),
+            error: Some("failed".to_string()),
+        }
+    }
+
+    // Rule 1: Inclusion must pass
+
+    #[test]
+    fn test_inclusion_false_always_invalid() {
+        // Arrange
+        let mut result = make_base_result();
+        result.inclusion_valid = false;
+        result.anchor_results.push(make_valid_anchor());
+        let options = VerifyOptions::default();
+
+        // Act
+        let valid = ReceiptVerifier::compute_validity(&result, &options, false);
+
+        // Assert
+        assert!(!valid);
+    }
+
+    // Rule 2: Super-Tree must pass
+
+    #[test]
+    fn test_super_inclusion_false_invalid_when_has_proof() {
+        // Arrange
+        let mut result = make_base_result();
+        result.super_inclusion_valid = false;
+        result.anchor_results.push(make_valid_anchor());
+        let options = VerifyOptions::default();
+
+        // Act
+        let valid = ReceiptVerifier::compute_validity(&result, &options, true);
+
+        // Assert
+        assert!(!valid);
+    }
+
+    #[test]
+    fn test_super_consistency_false_invalid_when_has_proof() {
+        // Arrange
+        let mut result = make_base_result();
+        result.super_consistency_valid = false;
+        result.anchor_results.push(make_valid_anchor());
+        let options = VerifyOptions::default();
+
+        // Act
+        let valid = ReceiptVerifier::compute_validity(&result, &options, true);
+
+        // Assert
+        assert!(!valid);
+    }
+
+    // Rule 3: Signature based on mode
+
+    #[test]
+    fn test_require_mode_needs_verified_signature() {
+        // Arrange
+        let mut result = make_base_result();
+        result.signature_status = SignatureStatus::Skipped;
+        result.anchor_results.push(make_valid_anchor());
+        let options =
+            VerifyOptions { signature_mode: SignatureMode::Require, ..Default::default() };
+
+        // Act
+        let valid = ReceiptVerifier::compute_validity(&result, &options, false);
+
+        // Assert
+        assert!(!valid); // Skipped != Verified
+    }
+
+    #[test]
+    fn test_require_mode_verified_is_valid() {
+        // Arrange
+        let mut result = make_base_result();
+        result.signature_status = SignatureStatus::Verified;
+        result.signature_valid = true;
+        // No anchor needed - verified signature is trust anchor
+        let options =
+            VerifyOptions { signature_mode: SignatureMode::Require, ..Default::default() };
+
+        // Act
+        let valid = ReceiptVerifier::compute_validity(&result, &options, false);
+
+        // Assert
+        assert!(valid);
+    }
+
+    #[test]
+    fn test_optional_mode_verified_is_valid_without_anchor() {
+        // Arrange
+        let mut result = make_base_result();
+        result.signature_status = SignatureStatus::Verified;
+        result.signature_valid = true;
+        // Verified signature is trust anchor in any mode
+        let options =
+            VerifyOptions { signature_mode: SignatureMode::Optional, ..Default::default() };
+
+        // Act
+        let valid = ReceiptVerifier::compute_validity(&result, &options, false);
+
+        // Assert
+        assert!(valid);
+    }
+
+    #[test]
+    fn test_optional_mode_skipped_valid_with_anchor() {
+        // Arrange
+        let mut result = make_base_result();
+        result.signature_status = SignatureStatus::Skipped;
+        result.anchor_results.push(make_valid_anchor());
+        let options =
+            VerifyOptions { signature_mode: SignatureMode::Optional, ..Default::default() };
+
+        // Act
+        let valid = ReceiptVerifier::compute_validity(&result, &options, false);
+
+        // Assert
+        assert!(valid); // Protocol compliance: anchor is enough
+    }
+
+    #[test]
+    fn test_optional_mode_failed_valid_with_anchor() {
+        // Arrange
+        let mut result = make_base_result();
+        result.signature_status = SignatureStatus::Failed;
+        result.anchor_results.push(make_valid_anchor());
+        let options =
+            VerifyOptions { signature_mode: SignatureMode::Optional, ..Default::default() };
+
+        // Act
+        let valid = ReceiptVerifier::compute_validity(&result, &options, false);
+
+        // Assert
+        assert!(valid); // Protocol: signature failure doesn't invalidate
+    }
+
+    #[test]
+    fn test_skip_mode_valid_with_anchor() {
+        // Arrange
+        let mut result = make_base_result();
+        result.signature_status = SignatureStatus::Skipped;
+        result.anchor_results.push(make_valid_anchor());
+        let options = VerifyOptions { signature_mode: SignatureMode::Skip, ..Default::default() };
+
+        // Act
+        let valid = ReceiptVerifier::compute_validity(&result, &options, false);
+
+        // Assert
+        assert!(valid);
+    }
+
+    // Rule 4: Trust anchor required
+
+    #[test]
+    fn test_no_anchor_no_signature_invalid() {
+        // Arrange
+        let mut result = make_base_result();
+        result.signature_status = SignatureStatus::Skipped;
+        // No anchors
+        let options = VerifyOptions::default();
+
+        // Act
+        let valid = ReceiptVerifier::compute_validity(&result, &options, false);
+
+        // Assert
+        assert!(!valid); // No trust anchor
+    }
+
+    #[test]
+    fn test_invalid_anchor_only_invalid() {
+        // Arrange
+        let mut result = make_base_result();
+        result.signature_status = SignatureStatus::Skipped;
+        result.anchor_results.push(make_invalid_anchor());
+        let options = VerifyOptions::default();
+
+        // Act
+        let valid = ReceiptVerifier::compute_validity(&result, &options, false);
+
+        // Assert
+        assert!(!valid); // Invalid anchor doesn't count
+    }
+
+    // Rule 5: No errors
+
+    #[test]
+    fn test_errors_invalidate() {
+        // Arrange
+        let mut result = make_base_result();
+        result.anchor_results.push(make_valid_anchor());
+        result.errors.push(VerificationError::RootHashMismatch);
+        let options = VerifyOptions::default();
+
+        // Act
+        let valid = ReceiptVerifier::compute_validity(&result, &options, false);
+
+        // Assert
+        assert!(!valid);
+    }
+
+    // Protocol compliance: key scenario
+
+    #[test]
+    fn test_protocol_compliance_anchor_only_verification() {
+        // Scenario: First-time verifier with no knowledge of Log Operator
+        // Protocol says this MUST work if anchors verify
+
+        // Arrange
+        let mut result = make_base_result();
+        result.signature_status = SignatureStatus::Skipped; // No key provided
+        result.signature_valid = false;
+        result.anchor_results.push(make_valid_anchor()); // TSA anchor verifies
+        let options = VerifyOptions::default(); // Optional mode
+
+        // Act
+        let valid = ReceiptVerifier::compute_validity(&result, &options, false);
+
+        // Assert
+        assert!(valid, "Protocol violation: anchor-only verification must work");
+    }
+}
+
+#[cfg(test)]
+mod no_trust_anchor_error_tests {
+    use super::*;
+    use crate::core::verify::types::VerificationError;
+
+    #[test]
+    fn test_no_trust_anchor_error_display() {
+        // Arrange
+        let error = VerificationError::NoTrustAnchor;
+
+        // Act
+        let display = error.to_string();
+
+        // Assert
+        assert!(display.contains("trust") || display.contains("anchor"));
+    }
+}

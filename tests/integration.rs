@@ -843,10 +843,7 @@ fn test_receipt_with_valid_metadata_hash_passes() {
 fn test_signature_mode_exported_from_crate() {
     use atl_core::{SignatureMode, VerifyOptions};
 
-    let options = VerifyOptions {
-        signature_mode: SignatureMode::Skip,
-        ..Default::default()
-    };
+    let options = VerifyOptions { signature_mode: SignatureMode::Skip, ..Default::default() };
 
     assert_eq!(options.signature_mode, SignatureMode::Skip);
 }

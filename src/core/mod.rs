@@ -65,9 +65,16 @@ pub use receipt::{
 pub use verify::{
     // ISO 8601 parsing
     iso8601::{is_leap_year, parse_iso8601_to_nanos},
-    // Verification functions
-    verify_receipt,
-    verify_receipt_json,
+    // Verification functions - anchor-only (recommended)
+    verify_receipt_anchor_only,
+    verify_receipt_json_anchor_only,
+    verify_receipt_json_with_options,
+    verify_receipt_with_options,
+    // Verification functions - key-based
+    verify_receipt_json_with_key,
+    verify_receipt_json_with_key_and_options,
+    verify_receipt_with_key,
+    verify_receipt_with_key_and_options,
     // Main verifier and result types
     AnchorVerificationResult,
     ReceiptVerifier,
@@ -75,6 +82,10 @@ pub use verify::{
     VerificationResult,
     VerifyOptions,
 };
+
+// Deprecated (still exported for backwards compatibility)
+#[allow(deprecated)]
+pub use verify::{verify_receipt, verify_receipt_json};
 
 // RFC 3161 timestamp verification (feature-gated)
 #[cfg(feature = "rfc3161-verify")]

@@ -276,6 +276,16 @@ pub enum VerificationError {
         /// Actual hash (computed from metadata)
         actual: String,
     },
+
+    /// No trust anchor available
+    ///
+    /// Verification found no source of trust:
+    /// - No valid external anchors (RFC 3161 or Bitcoin OTS)
+    /// - Signature not verified (no key, skipped, or failed in non-Require mode)
+    ///
+    /// Per ATL Protocol v2.0 Section 5.5:
+    /// > "A receipt without any verified anchors SHOULD be treated as untrustworthy."
+    NoTrustAnchor,
 }
 
 /// Options for verification
@@ -333,6 +343,12 @@ impl std::fmt::Display for VerificationError {
             }
             Self::MetadataHashMismatch { expected, actual } => {
                 write!(f, "Metadata hash mismatch: expected {expected}, got {actual}")
+            }
+            Self::NoTrustAnchor => {
+                write!(
+                    f,
+                    "No trust anchor available (no verified signature or valid external anchors)"
+                )
             }
         }
     }

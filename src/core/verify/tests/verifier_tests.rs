@@ -8,8 +8,12 @@
 
 use crate::core::checkpoint::{CheckpointJson, CheckpointVerifier};
 use crate::core::jcs::canonicalize_and_hash;
-use crate::core::receipt::{format_hash, Receipt, ReceiptAnchor, ReceiptEntry, ReceiptProof, SuperProof};
-use crate::core::verify::types::{SignatureMode, SignatureStatus, VerificationError, VerifyOptions};
+use crate::core::receipt::{
+    format_hash, Receipt, ReceiptAnchor, ReceiptEntry, ReceiptProof, SuperProof,
+};
+use crate::core::verify::types::{
+    SignatureMode, SignatureStatus, VerificationError, VerifyOptions,
+};
 use crate::core::verify::verifier::ReceiptVerifier;
 use ed25519_dalek::VerifyingKey;
 
@@ -720,12 +724,7 @@ mod signature_verification_tests {
         assert_eq!(result.signature_status, SignatureStatus::Skipped);
         assert!(!result.signature_valid);
         // No SignatureFailed error in Optional mode
-        assert!(
-            !result
-                .errors
-                .iter()
-                .any(|e| matches!(e, VerificationError::SignatureFailed))
-        );
+        assert!(!result.errors.iter().any(|e| matches!(e, VerificationError::SignatureFailed)));
     }
 
     #[test]
@@ -770,12 +769,7 @@ mod signature_verification_tests {
         assert_eq!(result.signature_status, SignatureStatus::Skipped);
         assert!(!result.signature_valid);
         // Require mode + no key = error
-        assert!(
-            result
-                .errors
-                .iter()
-                .any(|e| matches!(e, VerificationError::SignatureFailed))
-        );
+        assert!(result.errors.iter().any(|e| matches!(e, VerificationError::SignatureFailed)));
     }
 
     #[test]
@@ -791,11 +785,6 @@ mod signature_verification_tests {
         // Assert
         assert_eq!(result.signature_status, SignatureStatus::Skipped);
         // Optional mode without key = no error
-        assert!(
-            !result
-                .errors
-                .iter()
-                .any(|e| matches!(e, VerificationError::SignatureFailed))
-        );
+        assert!(!result.errors.iter().any(|e| matches!(e, VerificationError::SignatureFailed)));
     }
 }
