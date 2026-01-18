@@ -531,7 +531,7 @@ mod tests {
         };
 
         let debug_str = format!("{att:?}");
-        assert!(debug_str.contains("123_456"));
+        assert!(debug_str.contains("123456"));
         assert!(debug_str.contains("BitcoinAttestation"));
     }
 

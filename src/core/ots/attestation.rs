@@ -397,7 +397,7 @@ mod tests {
     #[test]
     fn test_attestation_display() {
         let att = Attestation::Bitcoin { height: 123_456 };
-        assert_eq!(att.to_string(), "Bitcoin(height=123_456)");
+        assert_eq!(att.to_string(), "Bitcoin(height=123456)");
 
         let att = Attestation::Pending { uri: "https://example.com".into() };
         assert_eq!(att.to_string(), "Pending(uri=\"https://example.com\")");
@@ -473,6 +473,6 @@ mod tests {
         let att = Attestation::Bitcoin { height: 123_456 };
         let debug_str = format!("{att:?}");
         assert!(debug_str.contains("Bitcoin"));
-        assert!(debug_str.contains("123_456"));
+        assert!(debug_str.contains("123456"));
     }
 }
