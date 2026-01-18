@@ -2,3 +2,4 @@
 
 mod rfc3161_tests;
 mod verification_tests;
+mod verifier_tests;

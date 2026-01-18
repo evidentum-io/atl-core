@@ -27,7 +27,7 @@ use super::verifier::ReceiptVerifier;
 /// Returns error if the public key is invalid.
 pub fn verify_receipt(receipt: &Receipt, public_key: &[u8; 32]) -> AtlResult<VerificationResult> {
     let verifier = CheckpointVerifier::from_bytes(public_key)?;
-    let receipt_verifier = ReceiptVerifier::new(verifier);
+    let receipt_verifier = ReceiptVerifier::with_key(verifier);
     Ok(receipt_verifier.verify(receipt))
 }
 

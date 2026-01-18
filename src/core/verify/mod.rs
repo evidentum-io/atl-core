@@ -14,7 +14,10 @@ pub mod iso8601;
 pub use iso8601::{is_leap_year, parse_iso8601_to_nanos};
 
 pub mod types;
-pub use types::{AnchorVerificationResult, VerificationError, VerificationResult, VerifyOptions};
+pub use types::{
+    AnchorVerificationResult, SignatureMode, SignatureStatus, VerificationError,
+    VerificationResult, VerifyOptions,
+};
 
 pub(in crate::core) mod helpers;
 pub use helpers::AnchorVerificationContext;

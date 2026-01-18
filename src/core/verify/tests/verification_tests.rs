@@ -11,6 +11,7 @@ use crate::core::verify::{
     verify_inclusion_only, verify_receipt, verify_receipt_json, AnchorVerificationResult,
     ReceiptVerifier, VerificationError, VerificationResult, VerifyOptions,
 };
+use crate::core::verify::types::{SignatureMode, SignatureStatus};
 use ed25519_dalek::{Signer, SigningKey};
 use serde_json::json;
 use uuid::Uuid;
@@ -197,6 +198,7 @@ fn test_verification_result_methods() {
         tree_size: 1,
         timestamp: 123_456,
         signature_valid: true,
+        signature_status: SignatureStatus::Verified,
         inclusion_valid: true,
         consistency_valid: None,
         super_inclusion_valid: true,
@@ -224,6 +226,7 @@ fn test_verification_result_with_errors() {
         tree_size: 1,
         timestamp: 123_456,
         signature_valid: false,
+        signature_status: SignatureStatus::Failed,
         inclusion_valid: false,
         consistency_valid: None,
         super_inclusion_valid: false,
@@ -250,6 +253,7 @@ fn test_verification_result_with_anchors() {
         tree_size: 1,
         timestamp: 123_456,
         signature_valid: true,
+        signature_status: SignatureStatus::Verified,
         inclusion_valid: true,
         consistency_valid: None,
         super_inclusion_valid: true,
@@ -277,9 +281,14 @@ fn test_receipt_verifier_with_options() {
     let signing_key = SigningKey::from_bytes(&[42u8; 32]);
     let verifier = CheckpointVerifier::new(signing_key.verifying_key());
 
-    let options =
-        VerifyOptions { skip_anchors: true, skip_consistency: true, min_valid_anchors: 0 };
+    let options = VerifyOptions {
+        signature_mode: SignatureMode::Optional,
+        skip_anchors: true,
+        skip_consistency: true,
+        min_valid_anchors: 0,
+    };
 
+    #[allow(deprecated)]
     let _receipt_verifier = ReceiptVerifier::with_options(verifier, options);
     // Note: Cannot test private field directly - options.skip_anchors is private
     // This test verifies that with_options constructor accepts options parameter

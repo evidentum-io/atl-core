@@ -836,3 +836,25 @@ fn test_receipt_with_valid_metadata_hash_passes() {
         .iter()
         .all(|e| !matches!(e, VerificationError::MetadataHashMismatch { .. })));
 }
+
+// ========== VERIFY-REFACTOR-1: SignatureMode and SignatureStatus Tests ==========
+
+#[test]
+fn test_signature_mode_exported_from_crate() {
+    use atl_core::{SignatureMode, VerifyOptions};
+
+    let options = VerifyOptions {
+        signature_mode: SignatureMode::Skip,
+        ..Default::default()
+    };
+
+    assert_eq!(options.signature_mode, SignatureMode::Skip);
+}
+
+#[test]
+fn test_signature_status_exported_from_prelude() {
+    use atl_core::prelude::*;
+
+    let status = SignatureStatus::Verified;
+    assert!(status.is_verified());
+}

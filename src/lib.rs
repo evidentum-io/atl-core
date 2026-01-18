@@ -128,6 +128,8 @@ pub use core::verify::{
     AnchorVerificationResult,
     CrossReceiptVerificationResult,
     ReceiptVerifier,
+    SignatureMode,
+    SignatureStatus,
     SuperVerificationResult,
     VerificationError,
     VerificationResult,

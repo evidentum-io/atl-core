@@ -30,6 +30,8 @@ pub use crate::core::verify::{
     verify_super_inclusion,
     CrossReceiptVerificationResult,
     ReceiptVerifier,
+    SignatureMode,
+    SignatureStatus,
     VerificationResult,
     VerifyOptions,
 };
