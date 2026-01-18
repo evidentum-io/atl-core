@@ -394,7 +394,7 @@ mod tests {
         assert!(!SignatureMode::Optional.requires_success());
         assert!(!SignatureMode::Skip.requires_success());
         let mode = SignatureMode::Require;
-        let cloned = mode.clone();
+        let cloned = mode;
         assert_eq!(mode, cloned);
         let copied: SignatureMode = mode;
         assert_eq!(mode, copied);
@@ -413,7 +413,7 @@ mod tests {
         assert!(!SignatureStatus::Skipped.was_attempted());
         assert!(SignatureStatus::KeyMismatch.was_attempted());
         let status = SignatureStatus::Verified;
-        let cloned = status.clone();
+        let cloned = status;
         assert_eq!(status, cloned);
         let copied: SignatureStatus = status;
         assert_eq!(status, copied);

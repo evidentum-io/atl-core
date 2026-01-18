@@ -63,7 +63,7 @@ type ForkStackEntry = (Vec<BuilderOp>, Vec<Vec<BuilderOp>>);
 ///     .fork()
 ///     .prepend(&[0x01])
 ///     .sha256()
-///     .add_bitcoin_attestation(500000)
+///     .add_bitcoin_attestation(500_000)
 ///     .fork()
 ///     .prepend(&[0x02])
 ///     .sha256()
@@ -248,7 +248,7 @@ impl TimestampBuilder {
     /// # Examples
     ///
     /// ```rust,ignore
-    /// builder.add_bitcoin_attestation(500000);
+    /// builder.add_bitcoin_attestation(500_000);
     /// ```
     #[must_use]
     pub fn add_bitcoin_attestation(mut self, block_height: u64) -> Self {
@@ -532,7 +532,7 @@ mod tests {
     fn test_bitcoin_attestation() {
         let hash = [0x11; 32];
         let ots_bytes =
-            TimestampBuilder::new(hash).sha256().add_bitcoin_attestation(500000).build().unwrap();
+            TimestampBuilder::new(hash).sha256().add_bitcoin_attestation(500_000).build().unwrap();
 
         assert!(!ots_bytes.is_empty());
     }

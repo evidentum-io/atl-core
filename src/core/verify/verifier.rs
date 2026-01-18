@@ -821,7 +821,6 @@ mod compute_validity_tests {
 
 #[cfg(test)]
 mod no_trust_anchor_error_tests {
-    use super::*;
     use crate::core::verify::types::VerificationError;
 
     #[test]

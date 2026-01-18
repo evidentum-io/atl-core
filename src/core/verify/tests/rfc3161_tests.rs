@@ -15,14 +15,14 @@ const FREETSA_HASH: [u8; 32] = [
 
 #[test]
 fn test_parse_real_freetsa_token() {
-    let token = format!("base64:{}", FREETSA_TOKEN);
+    let token = format!("base64:{FREETSA_TOKEN}");
     let result = parse_rfc3161_token(&token);
     assert!(result.is_ok(), "Should parse real FreeTSA token: {:?}", result.err());
 }
 
 #[test]
 fn test_verify_real_freetsa_token_valid_hash() {
-    let token = format!("base64:{}", FREETSA_TOKEN);
+    let token = format!("base64:{FREETSA_TOKEN}");
     let parsed = parse_rfc3161_token(&token).expect("Failed to parse token");
     let result = verify_rfc3161_hash(&parsed, &FREETSA_HASH);
     assert!(result.is_ok(), "Should verify with correct hash: {:?}", result.err());
@@ -31,7 +31,7 @@ fn test_verify_real_freetsa_token_valid_hash() {
 
 #[test]
 fn test_verify_real_freetsa_token_wrong_hash() {
-    let token = format!("base64:{}", FREETSA_TOKEN);
+    let token = format!("base64:{FREETSA_TOKEN}");
     let parsed = parse_rfc3161_token(&token).expect("Failed to parse token");
     let wrong_hash = [0xFF; 32];
     let result = verify_rfc3161_hash(&parsed, &wrong_hash);
@@ -43,19 +43,19 @@ fn test_verify_real_freetsa_token_wrong_hash() {
 
 #[test]
 fn test_extract_gentime_from_real_token() {
-    let token = format!("base64:{}", FREETSA_TOKEN);
+    let token = format!("base64:{FREETSA_TOKEN}");
     let parsed = parse_rfc3161_token(&token).expect("Failed to parse token");
     let gen_time = extract_gen_time_nanos(&parsed.tst_info);
     assert!(gen_time.is_some(), "Should extract genTime");
 
     let nanos = gen_time.unwrap();
-    assert!(nanos > 1704067200_000_000_000, "Timestamp should be after 2024-01-01");
+    assert!(nanos > 1_704_067_200_000_000_000, "Timestamp should be after 2024-01-01");
 }
 
 #[test]
 fn test_verify_rfc3161_anchor_integration() {
     let timestamp = "2026-01-04T21:57:43Z";
-    let token = format!("base64:{}", FREETSA_TOKEN);
+    let token = format!("base64:{FREETSA_TOKEN}");
 
     let result = verify_rfc3161_anchor_impl(timestamp, &token, &FREETSA_HASH);
 
@@ -86,16 +86,16 @@ fn test_rfc3161_empty_base64() {
 #[test]
 fn test_rfc3161_invalid_der_random_bytes() {
     use base64::Engine;
-    let random = base64::engine::general_purpose::STANDARD.encode(&[0xDE, 0xAD, 0xBE, 0xEF]);
-    let result = parse_rfc3161_token(&format!("base64:{}", random));
+    let random = base64::engine::general_purpose::STANDARD.encode([0xDE, 0xAD, 0xBE, 0xEF]);
+    let result = parse_rfc3161_token(&format!("base64:{random}"));
     assert!(matches!(result, Err(crate::error::AtlError::Rfc3161ParseError(_))));
 }
 
 #[test]
 fn test_rfc3161_truncated_der() {
     use base64::Engine;
-    let truncated = base64::engine::general_purpose::STANDARD.encode(&[0x30, 0x82, 0x0A, 0x7C]);
-    let result = parse_rfc3161_token(&format!("base64:{}", truncated));
+    let truncated = base64::engine::general_purpose::STANDARD.encode([0x30, 0x82, 0x0A, 0x7C]);
+    let result = parse_rfc3161_token(&format!("base64:{truncated}"));
     assert!(matches!(result, Err(crate::error::AtlError::Rfc3161ParseError(_))));
 }
 
@@ -103,7 +103,7 @@ fn test_rfc3161_truncated_der() {
 fn test_rfc3161_token_too_large() {
     use base64::Engine;
     let huge = base64::engine::general_purpose::STANDARD.encode(&vec![0x30; 100_000]);
-    let result = parse_rfc3161_token(&format!("base64:{}", huge));
+    let result = parse_rfc3161_token(&format!("base64:{huge}"));
     assert!(result.is_err());
 }
 
@@ -116,7 +116,7 @@ fn test_rfc3161_no_panic_on_arbitrary_input() {
         let result = std::panic::catch_unwind(|| {
             let _ = parse_rfc3161_token(input);
         });
-        assert!(result.is_ok(), "Panicked on input: {}", input);
+        assert!(result.is_ok(), "Panicked on input: {input}");
     }
 }
 

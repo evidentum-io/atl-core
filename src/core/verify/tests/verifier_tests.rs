@@ -1,6 +1,6 @@
 //! Verifier unit tests
 //!
-//! Tests for ReceiptVerifier functionality including:
+//! Tests for `ReceiptVerifier` functionality including:
 //! - Super-tree verification
 //! - Anchor-only mode
 //! - Signature verification modes
@@ -648,7 +648,7 @@ mod anchor_only_tests {
         };
 
         // Act
-        let verifier = ReceiptVerifier::anchor_only_with_options(options.clone());
+        let verifier = ReceiptVerifier::anchor_only_with_options(options);
 
         // Assert
         assert!(verifier.checkpoint_verifier.is_none());

@@ -179,17 +179,17 @@ pub use core::verify::{
     // Super-Tree verification (mandatory in v2.0)
     verify_consistency_to_origin,
     verify_cross_receipts,
-    verify_super_inclusion,
     // Anchor-only verification (recommended)
     verify_receipt_anchor_only,
     verify_receipt_json_anchor_only,
-    verify_receipt_json_with_options,
-    verify_receipt_with_options,
     // Key-based verification
     verify_receipt_json_with_key,
     verify_receipt_json_with_key_and_options,
+    verify_receipt_json_with_options,
     verify_receipt_with_key,
     verify_receipt_with_key_and_options,
+    verify_receipt_with_options,
+    verify_super_inclusion,
     // Types
     AnchorVerificationContext,
     AnchorVerificationResult,

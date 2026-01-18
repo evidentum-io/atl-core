@@ -95,8 +95,8 @@ mod tests {
     use base64::engine::general_purpose::STANDARD;
 
     fn load_fixture(name: &str) -> Vec<u8> {
-        let path = format!("test_data/ots/{}", name);
-        std::fs::read(&path).unwrap_or_else(|_| panic!("Failed to load fixture: {}", path))
+        let path = format!("test_data/ots/{name}");
+        std::fs::read(&path).unwrap_or_else(|_| panic!("Failed to load fixture: {path}"))
     }
 
     #[test]
@@ -107,12 +107,8 @@ mod tests {
         // Get expected hash from the fixture by parsing it
         use crate::core::ots::DetachedTimestampFile;
         let file = DetachedTimestampFile::from_bytes(&ots_bytes).unwrap();
-        let start_digest: [u8; 32] = file
-            .timestamp
-            .start_digest
-            .clone()
-            .try_into()
-            .expect("start digest should be 32 bytes");
+        let start_digest: [u8; 32] =
+            file.timestamp.start_digest.try_into().expect("start digest should be 32 bytes");
 
         let result = verify_ots_anchor_impl(&ots_base64, &start_digest);
 
@@ -129,9 +125,9 @@ mod tests {
                 }
             }
             Err(AtlError::ReceiptVerificationFailed(msg)) if msg.contains("pending") => {
-                println!("large-test.ots is still pending: {}", msg);
+                println!("large-test.ots is still pending: {msg}");
             }
-            Err(e) => panic!("Unexpected error: {:?}", e),
+            Err(e) => panic!("Unexpected error: {e:?}"),
         }
     }
 
@@ -171,12 +167,8 @@ mod tests {
         // Get correct hash from fixture
         use crate::core::ots::DetachedTimestampFile;
         let file = DetachedTimestampFile::from_bytes(&ots_bytes).unwrap();
-        let start_digest: [u8; 32] = file
-            .timestamp
-            .start_digest
-            .clone()
-            .try_into()
-            .expect("start digest should be 32 bytes");
+        let start_digest: [u8; 32] =
+            file.timestamp.start_digest.try_into().expect("start digest should be 32 bytes");
 
         let result = verify_ots_anchor_impl(&ots_base64, &start_digest);
 
@@ -193,9 +185,9 @@ mod tests {
             Err(AtlError::ReceiptVerificationFailed(msg)) if msg.contains("pending") => {
                 // Expected: pending only
                 assert!(msg.contains("upgrade URIs"));
-                println!("small-test.ots is pending: {}", msg);
+                println!("small-test.ots is pending: {msg}");
             }
-            Err(e) => panic!("Unexpected error: {:?}", e),
+            Err(e) => panic!("Unexpected error: {e:?}"),
         }
     }
 
@@ -206,12 +198,8 @@ mod tests {
 
         use crate::core::ots::DetachedTimestampFile;
         let file = DetachedTimestampFile::from_bytes(&ots_bytes).unwrap();
-        let start_digest: [u8; 32] = file
-            .timestamp
-            .start_digest
-            .clone()
-            .try_into()
-            .expect("start digest should be 32 bytes");
+        let start_digest: [u8; 32] =
+            file.timestamp.start_digest.try_into().expect("start digest should be 32 bytes");
 
         let result = verify_ots_anchor_impl(&ots_base64, &start_digest);
 
@@ -231,15 +219,15 @@ mod tests {
         use crate::core::ots::BitcoinAttestation;
 
         let att = BitcoinAttestation {
-            block_height: 123456,
+            block_height: 123_456,
             merkle_path: vec![[0xaa; 32], [0xbb; 32]],
             timestamp: None,
         };
 
-        let result = OtsVerifyResult { attestations: vec![att.clone()] };
+        let result = OtsVerifyResult { attestations: vec![att] };
 
         assert_eq!(result.attestations.len(), 1);
-        assert_eq!(result.attestations[0].block_height, 123456);
+        assert_eq!(result.attestations[0].block_height, 123_456);
         assert_eq!(result.attestations[0].path_len(), 2);
     }
 

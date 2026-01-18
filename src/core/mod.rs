@@ -68,13 +68,13 @@ pub use verify::{
     // Verification functions - anchor-only (recommended)
     verify_receipt_anchor_only,
     verify_receipt_json_anchor_only,
-    verify_receipt_json_with_options,
-    verify_receipt_with_options,
     // Verification functions - key-based
     verify_receipt_json_with_key,
     verify_receipt_json_with_key_and_options,
+    verify_receipt_json_with_options,
     verify_receipt_with_key,
     verify_receipt_with_key_and_options,
+    verify_receipt_with_options,
     // Main verifier and result types
     AnchorVerificationResult,
     ReceiptVerifier,

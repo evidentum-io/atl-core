@@ -63,7 +63,7 @@ impl BitcoinAttestation {
     /// let att = BitcoinAttestation {
     ///     block_height: 100,
     ///     merkle_path: vec![],
-    ///     timestamp: Some(1234567890),
+    ///     timestamp: Some(123_4567890),
     /// };
     /// assert!(att.has_timestamp());
     /// ```
@@ -283,7 +283,7 @@ mod tests {
         let sha256_step =
             Step { data: StepData::Op(Op::Sha256), output: sha256_output, next: vec![bitcoin_att] };
 
-        let timestamp = Timestamp { start_digest: start_digest.clone(), first_step: sha256_step };
+        let timestamp = Timestamp { start_digest, first_step: sha256_step };
 
         let file = DetachedTimestampFile { digest_type: DigestType::Sha256, timestamp };
 
@@ -305,7 +305,7 @@ mod tests {
             next: vec![],
         };
 
-        let timestamp = Timestamp { start_digest: start_digest.clone(), first_step: pending_att };
+        let timestamp = Timestamp { start_digest, first_step: pending_att };
 
         let file = DetachedTimestampFile { digest_type: DigestType::Sha256, timestamp };
 
@@ -314,7 +314,7 @@ mod tests {
 
     #[test]
     fn test_extract_with_bitcoin_attestation() {
-        let ots_bytes = create_test_ots_with_bitcoin(123456);
+        let ots_bytes = create_test_ots_with_bitcoin(123_456);
         let expected_root = [0xaa; 32];
 
         let result = extract_bitcoin_attestations(&ots_bytes, &expected_root);
@@ -323,7 +323,7 @@ mod tests {
         let attestations = result.unwrap();
 
         assert_eq!(attestations.len(), 1);
-        assert_eq!(attestations[0].block_height, 123456);
+        assert_eq!(attestations[0].block_height, 123_456);
         assert_eq!(attestations[0].path_len(), 1); // One SHA256 operation
         assert!(!attestations[0].has_timestamp());
     }
@@ -352,7 +352,7 @@ mod tests {
                 assert_eq!(uris.len(), 1);
                 assert_eq!(uris[0], "https://calendar.example.com");
             }
-            e => panic!("Expected PendingOnly error, got: {:?}", e),
+            e => panic!("Expected PendingOnly error, got: {e:?}"),
         }
     }
 
@@ -392,7 +392,7 @@ mod tests {
     #[test]
     fn test_bitcoin_attestation_helpers() {
         let att = BitcoinAttestation {
-            block_height: 123456,
+            block_height: 123_456,
             merkle_path: vec![[0xaa; 32], [0xbb; 32], [0xcc; 32]],
             timestamp: None,
         };
@@ -401,9 +401,9 @@ mod tests {
         assert_eq!(att.path_len(), 3);
 
         let att_with_ts = BitcoinAttestation {
-            block_height: 123456,
+            block_height: 123_456,
             merkle_path: vec![],
-            timestamp: Some(1234567890),
+            timestamp: Some(123_4567890),
         };
 
         assert!(att_with_ts.has_timestamp());
@@ -416,12 +416,8 @@ mod tests {
 
         // Parse to get start digest
         let file = DetachedTimestampFile::from_bytes(ots_data).unwrap();
-        let start_digest: [u8; 32] = file
-            .timestamp
-            .start_digest
-            .clone()
-            .try_into()
-            .expect("start digest should be 32 bytes");
+        let start_digest: [u8; 32] =
+            file.timestamp.start_digest.try_into().expect("start digest should be 32 bytes");
 
         let result = extract_bitcoin_attestations(ots_data, &start_digest);
 
@@ -435,9 +431,9 @@ mod tests {
                 }
             }
             Err(OtsError::PendingOnly { uris }) => {
-                println!("Pending attestations only: {:?}", uris);
+                println!("Pending attestations only: {uris:?}");
             }
-            Err(e) => panic!("Unexpected error: {:?}", e),
+            Err(e) => panic!("Unexpected error: {e:?}"),
         }
     }
 
@@ -447,12 +443,8 @@ mod tests {
 
         // Parse to get start digest
         let file = DetachedTimestampFile::from_bytes(ots_data).unwrap();
-        let start_digest: [u8; 32] = file
-            .timestamp
-            .start_digest
-            .clone()
-            .try_into()
-            .expect("start digest should be 32 bytes");
+        let start_digest: [u8; 32] =
+            file.timestamp.start_digest.try_into().expect("start digest should be 32 bytes");
 
         let result = extract_bitcoin_attestations(ots_data, &start_digest);
 
@@ -466,9 +458,9 @@ mod tests {
                 }
             }
             Err(OtsError::PendingOnly { uris }) => {
-                println!("Pending attestations only: {:?}", uris);
+                println!("Pending attestations only: {uris:?}");
             }
-            Err(e) => panic!("Unexpected error: {:?}", e),
+            Err(e) => panic!("Unexpected error: {e:?}"),
         }
     }
 
@@ -533,13 +525,13 @@ mod tests {
     #[test]
     fn test_bitcoin_attestation_debug() {
         let att = BitcoinAttestation {
-            block_height: 123456,
+            block_height: 123_456,
             merkle_path: vec![[0xaa; 32]],
-            timestamp: Some(1234567890),
+            timestamp: Some(123_4567890),
         };
 
         let debug_str = format!("{att:?}");
-        assert!(debug_str.contains("123456"));
+        assert!(debug_str.contains("123_456"));
         assert!(debug_str.contains("BitcoinAttestation"));
     }
 
