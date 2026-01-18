@@ -138,7 +138,36 @@ pub struct CheckpointJson {
 
 /// Verifier for checkpoint Ed25519 signatures
 ///
-/// This holds a trusted public key and can verify checkpoint signatures.
+/// This holds a public key for checkpoint signature verification.
+/// The signature serves as an **integrity check** to ensure the checkpoint
+/// fields have not been corrupted or tampered with.
+///
+/// ## Trust Model
+///
+/// Per ATL Protocol v2.0 Section 1.2:
+/// > "Verifiers do NOT need to trust the Log Operator. Trust is derived
+/// > exclusively from external, independent anchors."
+///
+/// The signature does NOT establish trust. Trust comes from external anchors
+/// (RFC 3161 TSA or Bitcoin OTS). The signature provides an additional
+/// integrity guarantee when the public key is known.
+///
+/// ## Usage
+///
+/// For most verification scenarios, you don't need this struct directly.
+/// Use anchor-based verification for trust.
+///
+/// Use `CheckpointVerifier` only when you have a known public key and want
+/// the additional integrity check:
+///
+/// ```rust,ignore
+/// use atl_core::{CheckpointVerifier, ReceiptVerifier};
+///
+/// // Optional: add signature integrity check
+/// let key_bytes: [u8; 32] = /* known public key */;
+/// let cv = CheckpointVerifier::from_bytes(&key_bytes)?;
+/// let verifier = ReceiptVerifier::with_key(cv);
+/// ```
 #[derive(Debug, Clone)]
 pub struct CheckpointVerifier {
     verifying_key: VerifyingKey,
@@ -369,6 +398,11 @@ impl CheckpointVerifier {
     /// Create a verifier from an Ed25519 public key
     ///
     /// The `key_id` is automatically computed as SHA256 of the public key.
+    ///
+    /// ## Note
+    ///
+    /// This verifier is optional for receipt verification. ATL Protocol v2.0
+    /// allows verification using only external anchors, without any public key.
     #[must_use]
     pub fn new(verifying_key: VerifyingKey) -> Self {
         let public_key_bytes = verifying_key.to_bytes();

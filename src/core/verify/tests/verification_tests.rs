@@ -7,9 +7,11 @@ use crate::core::merkle::compute_leaf_hash;
 use crate::core::receipt::{
     format_hash, format_signature, Receipt, ReceiptAnchor, ReceiptEntry, ReceiptProof, SuperProof,
 };
+use crate::core::verify::types::{SignatureMode, SignatureStatus};
 use crate::core::verify::{
-    verify_inclusion_only, verify_receipt, verify_receipt_json, AnchorVerificationResult,
-    ReceiptVerifier, VerificationError, VerificationResult, VerifyOptions,
+    verify_inclusion_only, verify_receipt_json_with_key, verify_receipt_with_key,
+    AnchorVerificationResult, ReceiptVerifier, VerificationError, VerificationResult,
+    VerifyOptions,
 };
 use ed25519_dalek::{Signer, SigningKey};
 use serde_json::json;
@@ -88,7 +90,7 @@ fn create_test_receipt() -> (Receipt, [u8; 32], SigningKey) {
 #[test]
 fn test_valid_receipt_passes() {
     let (receipt, public_key, _) = create_test_receipt();
-    let result = verify_receipt(&receipt, &public_key).unwrap();
+    let result = verify_receipt_with_key(&receipt, &public_key).unwrap();
 
     assert!(result.is_valid);
     assert!(result.inclusion_valid);
@@ -101,7 +103,7 @@ fn test_tampered_payload_hash_fails() {
     let (mut receipt, public_key, _) = create_test_receipt();
     receipt.entry.payload_hash = format_hash(&[0xFFu8; 32]);
 
-    let result = verify_receipt(&receipt, &public_key).unwrap();
+    let result = verify_receipt_with_key(&receipt, &public_key).unwrap();
 
     assert!(!result.is_valid);
     assert!(!result.inclusion_valid);
@@ -112,7 +114,7 @@ fn test_tampered_metadata_fails() {
     let (mut receipt, public_key, _) = create_test_receipt();
     receipt.entry.metadata = json!({"tampered": true});
 
-    let result = verify_receipt(&receipt, &public_key).unwrap();
+    let result = verify_receipt_with_key(&receipt, &public_key).unwrap();
 
     assert!(!result.is_valid);
     assert!(!result.inclusion_valid);
@@ -127,7 +129,7 @@ fn test_tampered_signature_fails() {
     sig_bytes[0] = 0xFF;
     receipt.proof.checkpoint.signature = format_signature(&sig_bytes);
 
-    let result = verify_receipt(&receipt, &public_key).unwrap();
+    let result = verify_receipt_with_key(&receipt, &public_key).unwrap();
 
     assert!(!result.is_valid);
     assert!(!result.signature_valid);
@@ -138,7 +140,7 @@ fn test_wrong_public_key_fails() {
     let (receipt, _, _) = create_test_receipt();
     let wrong_key = [99u8; 32];
 
-    let result = verify_receipt(&receipt, &wrong_key);
+    let result = verify_receipt_with_key(&receipt, &wrong_key);
 
     // Should fail at key_id mismatch or signature verification
     assert!(result.is_err() || !result.unwrap().is_valid());
@@ -150,7 +152,7 @@ fn test_root_hash_mismatch_detected() {
     receipt.proof.root_hash = format_hash(&[0xCCu8; 32]);
     // checkpoint.root_hash is different
 
-    let result = verify_receipt(&receipt, &public_key).unwrap();
+    let result = verify_receipt_with_key(&receipt, &public_key).unwrap();
 
     assert!(!result.is_valid);
     assert!(result.errors.iter().any(|e| matches!(e, VerificationError::RootHashMismatch)));
@@ -162,7 +164,7 @@ fn test_tree_size_mismatch_detected() {
     receipt.proof.tree_size = 999;
     // checkpoint.tree_size is different (1)
 
-    let result = verify_receipt(&receipt, &public_key).unwrap();
+    let result = verify_receipt_with_key(&receipt, &public_key).unwrap();
 
     assert!(!result.is_valid);
     assert!(result.errors.iter().any(|e| matches!(e, VerificationError::TreeSizeMismatch)));
@@ -197,6 +199,7 @@ fn test_verification_result_methods() {
         tree_size: 1,
         timestamp: 123_456,
         signature_valid: true,
+        signature_status: SignatureStatus::Verified,
         inclusion_valid: true,
         consistency_valid: None,
         super_inclusion_valid: true,
@@ -224,6 +227,7 @@ fn test_verification_result_with_errors() {
         tree_size: 1,
         timestamp: 123_456,
         signature_valid: false,
+        signature_status: SignatureStatus::Failed,
         inclusion_valid: false,
         consistency_valid: None,
         super_inclusion_valid: false,
@@ -250,6 +254,7 @@ fn test_verification_result_with_anchors() {
         tree_size: 1,
         timestamp: 123_456,
         signature_valid: true,
+        signature_status: SignatureStatus::Verified,
         inclusion_valid: true,
         consistency_valid: None,
         super_inclusion_valid: true,
@@ -277,27 +282,32 @@ fn test_receipt_verifier_with_options() {
     let signing_key = SigningKey::from_bytes(&[42u8; 32]);
     let verifier = CheckpointVerifier::new(signing_key.verifying_key());
 
-    let options =
-        VerifyOptions { skip_anchors: true, skip_consistency: true, min_valid_anchors: 0 };
+    let options = VerifyOptions {
+        signature_mode: SignatureMode::Optional,
+        skip_anchors: true,
+        skip_consistency: true,
+        min_valid_anchors: 0,
+    };
 
+    #[allow(deprecated)]
     let _receipt_verifier = ReceiptVerifier::with_options(verifier, options);
     // Note: Cannot test private field directly - options.skip_anchors is private
     // This test verifies that with_options constructor accepts options parameter
 }
 
 #[test]
-fn test_verify_receipt_json() {
+fn test_verify_receipt_json_with_key() {
     let (receipt, public_key, _) = create_test_receipt();
     let json = receipt.to_json().unwrap();
 
-    let result = verify_receipt_json(&json, &public_key).unwrap();
+    let result = verify_receipt_json_with_key(&json, &public_key).unwrap();
     assert!(result.is_valid);
 }
 
 #[test]
 fn test_invalid_json_returns_error() {
     let public_key = [42u8; 32];
-    let result = verify_receipt_json("{invalid json", &public_key);
+    let result = verify_receipt_json_with_key("{invalid json", &public_key);
     assert!(result.is_err());
 }
 

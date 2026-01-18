@@ -8,10 +8,21 @@
 //! ## What atl-core Provides
 //!
 //! - **Merkle tree operations** per RFC 6962
-//! - **Checkpoint verification** with Ed25519
+//! - **Checkpoint verification** (signature as integrity check)
 //! - **Receipt parsing** and structure validation
+//! - **Anchor-based verification** (RFC 3161 TSA, Bitcoin OTS)
 //! - **Offline verification** of evidence receipts
 //! - **JCS canonicalization** per RFC 8785
+//!
+//! ## Trust Model (ATL Protocol v2.0)
+//!
+//! Trust is established through **external anchors**, not the Log Operator's
+//! signature. A receipt is trustworthy if:
+//!
+//! 1. The Merkle inclusion proof is valid
+//! 2. At least one external anchor verifies (RFC 3161 or Bitcoin)
+//!
+//! The Log Operator's signature is an optional integrity check, not a trust anchor.
 //!
 //! ## What atl-core Does NOT Provide
 //!
@@ -22,6 +33,12 @@
 //!
 //! ## Quick Start: Verify a Receipt
 //!
+//! ATL Protocol v2.0 uses **anchor-based trust**. You don't need a public key
+//! to verify a receipt - trust is established through external anchors
+//! (RFC 3161 TSA or Bitcoin OTS).
+//!
+//! ### Recommended: Anchor-Based Verification
+//!
 //! ```rust,ignore
 //! use atl_core::prelude::*;
 //!
@@ -29,14 +46,16 @@
 //! let receipt_json = std::fs::read_to_string("document.pdf.atl")?;
 //! let receipt = Receipt::from_json(&receipt_json)?;
 //!
-//! // Verify with trusted public key
-//! let trusted_key: [u8; 32] = /* your trusted public key */;
-//! let result = verify_receipt(&receipt, &trusted_key)?;
+//! // Verify using external anchors (no key required)
+//! let verifier = ReceiptVerifier::anchor_only();
+//! let result = verifier.verify(&receipt);
 //!
 //! if result.is_valid {
-//!     println!("Receipt is valid!");
+//!     println!("Receipt verified via external anchor!");
 //!     println!("Entry ID: {}", receipt.entry.id);
-//!     println!("Tree size: {}", receipt.proof.tree_size);
+//!     if result.has_valid_anchor() {
+//!         println!("Trust established via anchors");
+//!     }
 //! } else {
 //!     println!("Verification failed:");
 //!     for error in &result.errors {
@@ -44,6 +63,45 @@
 //!     }
 //! }
 //! ```
+//!
+//! ### Optional: With Public Key (Integrity Check)
+//!
+//! If you have the Log Operator's public key, you can add signature verification
+//! as an additional integrity check:
+//!
+//! ```rust,ignore
+//! use atl_core::prelude::*;
+//!
+//! let receipt = Receipt::from_json(&json)?;
+//!
+//! // Optional: verify signature for integrity (not trust)
+//! let known_key: [u8; 32] = /* Log Operator's public key */;
+//! let checkpoint_verifier = CheckpointVerifier::from_bytes(&known_key)?;
+//! let verifier = ReceiptVerifier::with_key(checkpoint_verifier);
+//! let result = verifier.verify(&receipt);
+//!
+//! if result.signature_valid() {
+//!     println!("Signature valid (integrity check passed)");
+//! }
+//! // Trust still comes from anchors
+//! if result.is_valid && result.has_valid_anchor() {
+//!     println!("Receipt is trustworthy");
+//! }
+//! ```
+//!
+//! ## Trust Model
+//!
+//! Per ATL Protocol v2.0:
+//!
+//! > "Verifiers do NOT need to trust the Log Operator. Trust is derived
+//! > exclusively from external, independent anchors."
+//!
+//! | Component | Purpose |
+//! |-----------|---------|
+//! | Merkle Proof | Proves entry is in the tree |
+//! | Signature | Integrity check (optional) |
+//! | RFC 3161 Anchor | **Trust** - independent timestamp |
+//! | Bitcoin Anchor | **Trust** - immutable blockchain proof |
 //!
 //! ## Architecture
 //!
@@ -118,21 +176,36 @@ pub use core::receipt::{
 
 // Verification types and functions (v2.0)
 pub use core::verify::{
+    // Super-Tree verification (mandatory in v2.0)
     verify_consistency_to_origin,
     verify_cross_receipts,
-    verify_receipt,
-    verify_receipt_json,
-    // Super-Tree verification (mandatory in v2.0)
+    // Anchor-only verification (recommended)
+    verify_receipt_anchor_only,
+    verify_receipt_json_anchor_only,
+    // Key-based verification
+    verify_receipt_json_with_key,
+    verify_receipt_json_with_key_and_options,
+    verify_receipt_json_with_options,
+    verify_receipt_with_key,
+    verify_receipt_with_key_and_options,
+    verify_receipt_with_options,
     verify_super_inclusion,
+    // Types
     AnchorVerificationContext,
     AnchorVerificationResult,
     CrossReceiptVerificationResult,
     ReceiptVerifier,
+    SignatureMode,
+    SignatureStatus,
     SuperVerificationResult,
     VerificationError,
     VerificationResult,
     VerifyOptions,
 };
+
+// Deprecated (still exported for backwards compatibility)
+#[allow(deprecated)]
+pub use core::verify::{verify_receipt, verify_receipt_json};
 
 // RFC 3161 timestamp verification (feature-gated)
 #[cfg(feature = "rfc3161-verify")]

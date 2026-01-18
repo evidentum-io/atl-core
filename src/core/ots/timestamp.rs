@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn test_attestation_step_serialize() {
-        let step = make_bitcoin_attestation(123456);
+        let step = make_bitcoin_attestation(123_456);
 
         let mut buf = Vec::new();
         let mut ser = Serializer::new(&mut buf);
@@ -340,7 +340,7 @@ mod tests {
         let sha256_output = Op::Sha256.execute(&start_digest);
 
         let attestation_step = Step {
-            data: StepData::Attestation(Attestation::Bitcoin { height: 123456 }),
+            data: StepData::Attestation(Attestation::Bitcoin { height: 123_456 }),
             output: sha256_output.clone(),
             next: vec![],
         };

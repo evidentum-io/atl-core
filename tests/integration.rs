@@ -715,7 +715,7 @@ const FREETSA_TOKEN: &str = "MIIVSQYJKoZIhvcNAQcCoIIVOjCCFTYCAQMxDzANBglghkgBZQM
 #[cfg(feature = "rfc3161-verify")]
 #[test]
 fn test_receipt_with_rfc3161_anchor_wrong_hash() {
-    use atl_core::{verify_receipt, ReceiptAnchor};
+    use atl_core::{verify_receipt_with_key, ReceiptAnchor};
 
     let (signing_key, verifying_key) = generate_test_keypair();
     let mut receipt = create_test_receipt(&signing_key);
@@ -728,7 +728,7 @@ fn test_receipt_with_rfc3161_anchor_wrong_hash() {
         token_der: format!("base64:{FREETSA_TOKEN}"),
     }];
 
-    let result = verify_receipt(&receipt, &verifying_key.to_bytes()).unwrap();
+    let result = verify_receipt_with_key(&receipt, &verifying_key.to_bytes()).unwrap();
 
     assert!(result.is_valid);
     assert_eq!(result.anchor_results.len(), 1);
@@ -743,7 +743,7 @@ fn test_receipt_with_rfc3161_anchor_wrong_hash() {
 #[cfg(feature = "rfc3161-verify")]
 #[test]
 fn test_receipt_with_rfc3161_anchor_malformed() {
-    use atl_core::{verify_receipt, ReceiptAnchor};
+    use atl_core::{verify_receipt_with_key, ReceiptAnchor};
 
     let (signing_key, verifying_key) = generate_test_keypair();
     let mut receipt = create_test_receipt(&signing_key);
@@ -756,7 +756,7 @@ fn test_receipt_with_rfc3161_anchor_malformed() {
         token_der: "base64:INVALID_DER_TOKEN".to_string(),
     }];
 
-    let result = verify_receipt(&receipt, &verifying_key.to_bytes()).unwrap();
+    let result = verify_receipt_with_key(&receipt, &verifying_key.to_bytes()).unwrap();
 
     assert!(result.is_valid);
     assert_eq!(result.anchor_results.len(), 1);
@@ -770,7 +770,7 @@ fn test_receipt_with_rfc3161_anchor_malformed() {
 #[cfg(not(feature = "rfc3161-verify"))]
 #[test]
 fn test_receipt_with_rfc3161_anchor_feature_disabled() {
-    use atl_core::{verify_receipt, ReceiptAnchor};
+    use atl_core::{verify_receipt_with_key, ReceiptAnchor};
 
     let (signing_key, verifying_key) = generate_test_keypair();
     let mut receipt = create_test_receipt(&signing_key);
@@ -783,7 +783,7 @@ fn test_receipt_with_rfc3161_anchor_feature_disabled() {
         token_der: "base64:AAAA".to_string(),
     }];
 
-    let result = verify_receipt(&receipt, &verifying_key.to_bytes()).unwrap();
+    let result = verify_receipt_with_key(&receipt, &verifying_key.to_bytes()).unwrap();
 
     assert!(result.is_valid);
     assert_eq!(result.anchor_results.len(), 1);
@@ -806,7 +806,7 @@ fn test_receipt_with_wrong_metadata_hash_fails() {
     // Corrupt the metadata_hash
     receipt.entry.metadata_hash = format_hash(&[0xff; 32]);
 
-    let verifier = atl_core::core::verify::ReceiptVerifier::new(
+    let verifier = atl_core::core::verify::ReceiptVerifier::with_key(
         CheckpointVerifier::from_bytes(&verifying_key.to_bytes()).unwrap(),
     );
     let result = verifier.verify(&receipt);
@@ -825,7 +825,7 @@ fn test_receipt_with_valid_metadata_hash_passes() {
     let (signing_key, verifying_key) = generate_test_keypair();
     let receipt = create_test_receipt(&signing_key);
 
-    let verifier = atl_core::core::verify::ReceiptVerifier::new(
+    let verifier = atl_core::core::verify::ReceiptVerifier::with_key(
         CheckpointVerifier::from_bytes(&verifying_key.to_bytes()).unwrap(),
     );
     let result = verifier.verify(&receipt);
@@ -835,4 +835,23 @@ fn test_receipt_with_valid_metadata_hash_passes() {
         .errors
         .iter()
         .all(|e| !matches!(e, VerificationError::MetadataHashMismatch { .. })));
+}
+
+// ========== VERIFY-REFACTOR-1: SignatureMode and SignatureStatus Tests ==========
+
+#[test]
+fn test_signature_mode_exported_from_crate() {
+    use atl_core::{SignatureMode, VerifyOptions};
+
+    let options = VerifyOptions { signature_mode: SignatureMode::Skip, ..Default::default() };
+
+    assert_eq!(options.signature_mode, SignatureMode::Skip);
+}
+
+#[test]
+fn test_signature_status_exported_from_prelude() {
+    use atl_core::prelude::*;
+
+    let status = SignatureStatus::Verified;
+    assert!(status.is_verified());
 }
