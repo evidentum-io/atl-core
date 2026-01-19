@@ -89,6 +89,55 @@ impl BitcoinAttestation {
     pub const fn path_len(&self) -> usize {
         self.merkle_path.len()
     }
+
+    /// Verify that the merkle path leads to the given block merkle root
+    ///
+    /// Bitcoin stores hashes internally in little-endian format, but APIs and
+    /// block explorers display them in big-endian (reversed). This method
+    /// handles the byte reversal automatically.
+    ///
+    /// # Arguments
+    ///
+    /// * `block_merkle_root_hex` - Merkle root from Bitcoin API (64 hex chars, big-endian)
+    ///
+    /// # Returns
+    ///
+    /// * `true` if the last hash in merkle_path (reversed) matches the block merkle root
+    /// * `false` if merkle_path is empty or hashes don't match
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use atl_core::ots::BitcoinAttestation;
+    /// // Real data from block 932897
+    /// let mut last_hash = [0u8; 32];
+    /// hex::decode_to_slice(
+    ///     "6f20a87026e693f298b72fd96141f07e2628cb0553da748fcc9c1565ce6d822f",
+    ///     &mut last_hash
+    /// ).unwrap();
+    ///
+    /// let att = BitcoinAttestation {
+    ///     block_height: 932897,
+    ///     merkle_path: vec![last_hash],
+    ///     timestamp: None,
+    /// };
+    ///
+    /// // Block 932897 merkle root (big-endian display format)
+    /// let merkle_root = "2f826dce65159ccc8f74da5305cb28267ef04161d92fb798f293e62670a8206f";
+    /// assert!(att.verify_against_block(merkle_root));
+    /// ```
+    #[must_use]
+    pub fn verify_against_block(&self, block_merkle_root_hex: &str) -> bool {
+        let Some(last_hash) = self.merkle_path.last() else {
+            return false;
+        };
+
+        // Reverse bytes: little-endian (internal) -> big-endian (display format)
+        let mut reversed = *last_hash;
+        reversed.reverse();
+
+        hex::encode(reversed) == block_merkle_root_hex
+    }
 }
 
 /// Extract all Bitcoin attestations from an OTS proof
