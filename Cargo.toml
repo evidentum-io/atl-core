@@ -31,7 +31,7 @@ proptest = "1"
 criterion = "0.5"
 
 [features]
-default = []
+default = ["rfc3161-verify", "bitcoin-ots"]
 rfc3161-verify = ["dep:cryptographic-message-syntax", "dep:bcder"]
 bitcoin-ots = ["dep:bitcoin_hashes"]
 
