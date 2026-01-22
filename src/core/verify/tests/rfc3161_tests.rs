@@ -102,7 +102,7 @@ fn test_rfc3161_truncated_der() {
 #[test]
 fn test_rfc3161_token_too_large() {
     use base64::Engine;
-    let huge = base64::engine::general_purpose::STANDARD.encode(&vec![0x30; 100_000]);
+    let huge = base64::engine::general_purpose::STANDARD.encode(vec![0x30; 100_000]);
     let result = parse_rfc3161_token(&format!("base64:{huge}"));
     assert!(result.is_err());
 }

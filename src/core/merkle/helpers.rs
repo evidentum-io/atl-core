@@ -82,16 +82,27 @@ pub const fn is_power_of_two(n: u64) -> bool {
 /// Helper function for proof generation that computes the root hash
 /// of a subtree spanning leaves [offset..offset+size).
 ///
-/// This function only retrieves leaf nodes (level 0) from storage
-/// and computes intermediate hashes recursively.
+/// ## Optimization: Intermediate Node Lookup
+///
+/// For power-of-2 aligned subtrees (size is power of 2 AND offset % size == 0),
+/// this function first tries to retrieve the pre-computed intermediate node
+/// via `get_node(level, index)`. If available, this converts O(n) recursion
+/// to O(1) lookup.
+///
+/// Callers that store intermediate nodes (like atl-server's `SlabFile`) benefit
+/// from this optimization automatically. Callers that only support level 0
+/// (leaves) simply return `None` for higher levels, triggering fallback to
+/// the original recursive algorithm.
 ///
 /// # Arguments
 /// * `offset` - Starting leaf index of subtree
 /// * `size` - Number of leaves in subtree
-/// * `get_node` - Storage callback (only called for level 0, leaf index)
+/// * `get_node` - Storage callback that can return nodes at any level:
+///   - Level 0: leaf nodes (required)
+///   - Level > 0: intermediate nodes (optional, enables O(1) optimization)
 ///
 /// # Returns
-/// * Root hash of subtree or error if leaf nodes are missing
+/// * Root hash of subtree or error if required nodes are missing
 ///
 /// # Errors
 /// * `InvalidArgument` - If size is 0
@@ -107,6 +118,21 @@ where
     if size == 1 {
         // Single leaf - always retrieve from level 0
         return get_node(0, offset).ok_or(AtlError::MissingNode { level: 0, index: offset });
+    }
+
+    // Optimization: Try stored intermediate node for power-of-2 aligned subtrees
+    // This converts O(n) recursion to O(1) lookup when intermediate nodes are available
+    if size.is_power_of_two() && offset.is_multiple_of(size) {
+        // size is power of 2 AND offset is aligned to size
+        // Compute level = log2(size) for u64
+        let level = 63 - size.leading_zeros();
+        // Compute index at that level
+        let index = offset >> level;
+
+        if let Some(stored_hash) = get_node(level, index) {
+            return Ok(stored_hash);
+        }
+        // Fallback: intermediate node not available, continue with recursion
     }
 
     // Recursively compute subtree root using RFC 6962 algorithm

@@ -101,11 +101,12 @@ mod tests {
 
     #[test]
     fn test_verify_ots_anchor_with_bitcoin() {
+        use crate::core::ots::DetachedTimestampFile;
+
         let ots_bytes = load_fixture("large-test.ots");
         let ots_base64 = STANDARD.encode(&ots_bytes);
 
         // Get expected hash from the fixture by parsing it
-        use crate::core::ots::DetachedTimestampFile;
         let file = DetachedTimestampFile::from_bytes(&ots_bytes).unwrap();
         let start_digest: [u8; 32] =
             file.timestamp.start_digest.try_into().expect("start digest should be 32 bytes");
@@ -161,11 +162,12 @@ mod tests {
 
     #[test]
     fn test_verify_ots_anchor_pending_only() {
+        use crate::core::ots::DetachedTimestampFile;
+
         let ots_bytes = load_fixture("small-test.ots");
         let ots_base64 = STANDARD.encode(&ots_bytes);
 
         // Get correct hash from fixture
-        use crate::core::ots::DetachedTimestampFile;
         let file = DetachedTimestampFile::from_bytes(&ots_bytes).unwrap();
         let start_digest: [u8; 32] =
             file.timestamp.start_digest.try_into().expect("start digest should be 32 bytes");
@@ -193,10 +195,10 @@ mod tests {
 
     #[test]
     fn test_verify_ots_anchor_with_base64_prefix() {
+        use crate::core::ots::DetachedTimestampFile;
+
         let ots_bytes = load_fixture("large-test.ots");
         let ots_base64 = format!("base64:{}", STANDARD.encode(&ots_bytes));
-
-        use crate::core::ots::DetachedTimestampFile;
         let file = DetachedTimestampFile::from_bytes(&ots_bytes).unwrap();
         let start_digest: [u8; 32] =
             file.timestamp.start_digest.try_into().expect("start digest should be 32 bytes");
