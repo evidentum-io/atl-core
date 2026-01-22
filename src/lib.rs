@@ -118,6 +118,8 @@
 #![warn(missing_docs)]
 #![warn(rustdoc::missing_crate_level_docs)]
 #![deny(unsafe_code)]
+// Transitive dependencies bring multiple versions - not actionable in library code
+#![allow(clippy::multiple_crate_versions)]
 
 // ============================================================================
 // Core Module

@@ -834,7 +834,7 @@ mod tests {
         let start_digest = vec![0xaa; 32];
 
         let attestation_step = Step {
-            data: StepData::Attestation(Attestation::Bitcoin { height: 123456 }),
+            data: StepData::Attestation(Attestation::Bitcoin { height: 123_456 }),
             output: start_digest.clone(),
             next: vec![],
         };

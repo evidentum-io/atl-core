@@ -574,7 +574,7 @@ mod tests {
             .ripemd160()
             .reverse()
             .hexlify()
-            .add_bitcoin_attestation(100000)
+            .add_bitcoin_attestation(100_000)
             .build()
             .unwrap();
 
@@ -587,9 +587,9 @@ mod tests {
         let ots_bytes = TimestampBuilder::new(hash)
             .sha256()
             .fork()
-            .add_bitcoin_attestation(100000)
+            .add_bitcoin_attestation(100_000)
             .fork()
-            .add_bitcoin_attestation(200000)
+            .add_bitcoin_attestation(200_000)
             .fork()
             .add_pending_attestation("https://calendar.example.org")
             .end_fork()
@@ -606,7 +606,7 @@ mod tests {
         let hash = [0x66; 32];
         let file = TimestampBuilder::new(hash)
             .sha256()
-            .add_bitcoin_attestation(123456)
+            .add_bitcoin_attestation(123_456)
             .build_timestamp()
             .unwrap();
 
@@ -635,11 +635,11 @@ mod tests {
             .fork()
             .prepend(&[0x01])
             .sha256()
-            .add_bitcoin_attestation(100000)
+            .add_bitcoin_attestation(100_000)
             .fork()
             .prepend(&[0x02])
             .sha256()
-            .add_bitcoin_attestation(200000)
+            .add_bitcoin_attestation(200_000)
             .fork()
             .prepend(&[0x03])
             .sha256()

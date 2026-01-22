@@ -102,8 +102,8 @@ impl BitcoinAttestation {
     ///
     /// # Returns
     ///
-    /// * `true` if the last hash in merkle_path (reversed) matches the block merkle root
-    /// * `false` if merkle_path is empty or hashes don't match
+    /// * `true` if the last hash in `merkle_path` (reversed) matches the block merkle root
+    /// * `false` if `merkle_path` is empty or hashes don't match
     ///
     /// # Examples
     ///
@@ -452,7 +452,7 @@ mod tests {
         let att_with_ts = BitcoinAttestation {
             block_height: 123_456,
             merkle_path: vec![],
-            timestamp: Some(123_4567890),
+            timestamp: Some(1_234_567_890),
         };
 
         assert!(att_with_ts.has_timestamp());
@@ -576,7 +576,7 @@ mod tests {
         let att = BitcoinAttestation {
             block_height: 123_456,
             merkle_path: vec![[0xaa; 32]],
-            timestamp: Some(123_4567890),
+            timestamp: Some(1_234_567_890),
         };
 
         let debug_str = format!("{att:?}");
