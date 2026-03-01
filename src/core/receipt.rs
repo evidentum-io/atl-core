@@ -180,6 +180,12 @@ pub struct ReceiptProof {
     pub checkpoint: CheckpointJson,
 
     /// Optional consistency proof from previous checkpoint
+    // TODO(v3.0): Remove this field. Data Tree consistency_proof is vestigial —
+    // the CLI does not verify it, and real consistency guarantees come from
+    // super_proof.consistency_to_origin (Super-Tree level). Removing requires
+    // a breaking change to ReceiptProof, cascading to atl-server (receipt
+    // generation, gRPC proto, DTO) and documentation. ~209 references across
+    // atl-core, atl-server, atl-cli, protocol docs.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub consistency_proof: Option<ReceiptConsistencyProof>,
 }
