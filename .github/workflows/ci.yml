@@ -27,7 +27,11 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --all-targets -- -D warnings
+      - name: Clippy (blocking)
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Clippy (pedantic + nursery, informational)
+        continue-on-error: true
+        run: cargo clippy --all-targets -- -W clippy::pedantic -W clippy::nursery -D warnings
 
   test:
     name: Test
@@ -53,6 +57,13 @@ jobs:
   msrv:
     name: MSRV (1.92.0)
     runs-on: ubuntu-latest
+    # rust-toolchain.toml in this repo resolves to stable and, per rustup's
+    # precedence, overrides `rustup default` (which is all dtolnay/rust-toolchain
+    # sets). RUSTUP_TOOLCHAIN outranks the toolchain file, so it is the only way
+    # to make this job actually run under 1.92.0 instead of silently building
+    # against stable.
+    env:
+      RUSTUP_TOOLCHAIN: "1.92.0"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.92.0

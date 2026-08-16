@@ -1,11 +1,15 @@
 [package]
 name = "atl-core"
-version = "0.23.1"
+version = "0.23.2"
 edition = "2021"
 rust-version = "1.92.0"
+authors = ["Dmitrii Zatona <dmitrii@zatona.dev>"]
 license = "Apache-2.0"
 description = "Pure cryptographic library for ATL Protocol v2.0 (Anchored Transparency Log)"
-repository = "https://github.com/evidentum/atl-core"
+repository = "https://github.com/evidentum-io/atl-core"
+homepage = "https://atl-protocol.org"
+documentation = "https://atl-protocol.org/implementations/atl-core"
+readme = "README.md"
 keywords = ["transparency-log", "merkle-tree", "cryptography", "verification"]
 categories = ["cryptography", "data-structures"]
 
@@ -45,7 +49,10 @@ missing_docs = "warn"
 rust_2018_idioms = { level = "warn", priority = -1 }
 
 [lints.clippy]
+# pedantic and nursery are intentionally NOT enabled here: nursery lints are
+# unstable by design and change every rustc release, which would make this
+# blocking lint set break CI regardless of code quality. They are still run
+# in CI as a separate informational step (see .github/workflows/ci.yml),
+# just not via this warn-level Cargo.toml gate.
 all = "warn"
-pedantic = "warn"
-nursery = "warn"
 cargo = "warn"

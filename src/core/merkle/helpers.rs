@@ -125,7 +125,7 @@ where
     if size.is_power_of_two() && offset.is_multiple_of(size) {
         // size is power of 2 AND offset is aligned to size
         // Compute level = log2(size) for u64
-        let level = 63 - size.leading_zeros();
+        let level = size.ilog2();
         // Compute index at that level
         let index = offset >> level;
 

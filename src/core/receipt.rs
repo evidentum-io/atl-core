@@ -301,7 +301,7 @@ pub enum ReceiptAnchor {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SuperProof {
     /// Hash of Super-Tree at size 1 (first Data Tree's root)
-    /// Format: "sha256:<hex>"
+    /// Format: `"sha256:<hex>"`
     pub genesis_super_root: String,
 
     /// Position of this Data Tree in the Super-Tree (0-indexed)
@@ -311,15 +311,15 @@ pub struct SuperProof {
     pub super_tree_size: u64,
 
     /// The Super-Tree root hash that was anchored
-    /// Format: "sha256:<hex>"
+    /// Format: `"sha256:<hex>"`
     pub super_root: String,
 
     /// Merkle inclusion proof from Data Tree root to Super Root
-    /// Format: list of "sha256:<hex>"
+    /// Format: list of `"sha256:<hex>"`
     pub inclusion: Vec<String>,
 
     /// RFC 9162 consistency proof from Super-Tree size 1 to current size
-    /// Format: list of "sha256:<hex>"
+    /// Format: list of `"sha256:<hex>"`
     pub consistency_to_origin: Vec<String>,
 }
 
