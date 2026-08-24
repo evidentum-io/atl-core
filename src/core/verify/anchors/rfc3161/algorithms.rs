@@ -4,8 +4,15 @@
 //! (FreeTSA, Sectigo, DigiCert, GlobalSign): RSA PKCS#1 v1.5 (3072/4096-bit
 //! keys, SHA-256/384/512, both the bare `rsaEncryption` OID and the
 //! composite `shaNNNWithRSAEncryption` OIDs) and ECDSA on P-384 with a
-//! SHA-512 digest. P-256 is supported opportunistically (RustCrypto gives it
-//! to us for free) even though it was not observed in the corpus.
+//! SHA-512 digest. ECDSA on P-256 is also implemented (RustCrypto gives it
+//! to us at no extra cost) even though it was not observed in the corpus and
+//! has no dedicated test fixture yet.
+//!
+//! **Not implemented**: P-521 and RSA-PSS. Neither OID resolves in
+//! [`resolve_digest`]/[`verify_signature`] below; a token using either is
+//! rejected with [`SigVerifyError::UnsupportedSignatureAlgorithm`], not
+//! silently mishandled. Add them deliberately (with fixtures) if a real TSA
+//! is ever observed using them -- do not claim support without one.
 //!
 //! # The bare-`rsaEncryption` rule
 //!
@@ -59,6 +66,20 @@ pub enum SigVerifyError {
     /// signature does not match the data under this key).
     #[error("signature verification failed")]
     SignatureInvalid,
+    /// The `signatureAlgorithm` names one key family (e.g. ECDSA) but the
+    /// `SubjectPublicKeyInfo` actually holds a key of a different family
+    /// (e.g. RSA). This is the exact substitution a forger would attempt --
+    /// declare `ecdsa-with-SHA512` while shipping an RSA key and an RSA
+    /// signature, hoping the verifier dispatches on the OID it wants to see
+    /// rather than the OID that matches the key it actually has. Rejected
+    /// before any cryptographic verification is attempted.
+    #[error("signature algorithm claims {claimed_family} but the public key is {actual_family}")]
+    KeyFamilyMismatch {
+        /// Key family implied by `signatureAlgorithm`.
+        claimed_family: &'static str,
+        /// Key family actually present in `SubjectPublicKeyInfo`.
+        actual_family: &'static str,
+    },
 }
 
 /// A supported message-digest algorithm.
@@ -96,28 +117,56 @@ impl DigestAlg {
     }
 }
 
-/// Resolve a `SignerInfo`/certificate `signatureAlgorithm` OID into the
-/// digest it commits to, applying the bare-vs-composite RSA rule and the
-/// "CMS Algorithm Protection" compatible cross-check for ECDSA/composite-RSA
-/// OIDs (which always fix their own digest).
+/// The key family a `signatureAlgorithm` OID commits to.
+///
+/// This is deliberately its own type, checked against the actual
+/// `SubjectPublicKeyInfo` before any cryptographic verification is
+/// attempted (see [`verify_signature`]): dispatching purely on the SPKI's
+/// key type while trusting the caller-controlled `signatureAlgorithm` for
+/// the digest would let a forger declare `ecdsa-with-SHA512` over an RSA
+/// key and RSA signature, and have it verified as "RSA/SHA-512" -- the
+/// digest matches, the RSA math checks out, and the mismatch between what
+/// was *claimed* and what was *signed with* is silently ignored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum KeyFamily {
+    Rsa,
+    Ecdsa,
+}
+
+impl KeyFamily {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Rsa => "RSA",
+            Self::Ecdsa => "ECDSA",
+        }
+    }
+}
+
+/// Resolve a `SignerInfo`/certificate `signatureAlgorithm` OID into the key
+/// family and digest it commits to, applying the bare-vs-composite RSA rule
+/// and the "CMS Algorithm Protection" compatible cross-check for
+/// ECDSA/composite-RSA OIDs (which always fix their own digest).
 fn resolve_digest(
     sig_alg_oid: &ObjectIdentifier,
     digest_hint: Option<&AlgorithmIdentifierOwned>,
-) -> Result<DigestAlg, SigVerifyError> {
+) -> Result<(KeyFamily, DigestAlg), SigVerifyError> {
     use const_oid::db::rfc5912::{
         ECDSA_WITH_SHA_256, ECDSA_WITH_SHA_384, ECDSA_WITH_SHA_512, RSA_ENCRYPTION,
         SHA_256_WITH_RSA_ENCRYPTION, SHA_384_WITH_RSA_ENCRYPTION, SHA_512_WITH_RSA_ENCRYPTION,
     };
 
-    let fixed = match *sig_alg_oid {
+    let (family, fixed) = match *sig_alg_oid {
         RSA_ENCRYPTION => {
             // Bare rsaEncryption: the digest comes entirely from the hint.
             let hint = digest_hint.ok_or(SigVerifyError::BareRsaRequiresDigestHint)?;
-            return DigestAlg::from_oid(&hint.oid);
+            return Ok((KeyFamily::Rsa, DigestAlg::from_oid(&hint.oid)?));
         }
-        SHA_256_WITH_RSA_ENCRYPTION | ECDSA_WITH_SHA_256 => DigestAlg::Sha256,
-        SHA_384_WITH_RSA_ENCRYPTION | ECDSA_WITH_SHA_384 => DigestAlg::Sha384,
-        SHA_512_WITH_RSA_ENCRYPTION | ECDSA_WITH_SHA_512 => DigestAlg::Sha512,
+        SHA_256_WITH_RSA_ENCRYPTION => (KeyFamily::Rsa, DigestAlg::Sha256),
+        SHA_384_WITH_RSA_ENCRYPTION => (KeyFamily::Rsa, DigestAlg::Sha384),
+        SHA_512_WITH_RSA_ENCRYPTION => (KeyFamily::Rsa, DigestAlg::Sha512),
+        ECDSA_WITH_SHA_256 => (KeyFamily::Ecdsa, DigestAlg::Sha256),
+        ECDSA_WITH_SHA_384 => (KeyFamily::Ecdsa, DigestAlg::Sha384),
+        ECDSA_WITH_SHA_512 => (KeyFamily::Ecdsa, DigestAlg::Sha512),
         other => return Err(SigVerifyError::UnsupportedSignatureAlgorithm(other.to_string())),
     };
 
@@ -131,7 +180,7 @@ fn resolve_digest(
         }
     }
 
-    Ok(fixed)
+    Ok((family, fixed))
 }
 
 /// Verify a signature over `signed_bytes` under `spki`, per `sig_alg`.
@@ -149,15 +198,36 @@ pub(super) fn verify_signature(
 ) -> Result<(), SigVerifyError> {
     use const_oid::db::rfc5912::{ID_EC_PUBLIC_KEY, RSA_ENCRYPTION};
 
-    let digest_alg = resolve_digest(&sig_alg.oid, digest_hint)?;
+    let (claimed_family, digest_alg) = resolve_digest(&sig_alg.oid, digest_hint)?;
+
+    // The key family the SPKI actually holds, independent of what
+    // `signatureAlgorithm` claims.
+    let actual_family = match spki.algorithm.oid {
+        RSA_ENCRYPTION => KeyFamily::Rsa,
+        ID_EC_PUBLIC_KEY => KeyFamily::Ecdsa,
+        other => {
+            return Err(SigVerifyError::UnsupportedSignatureAlgorithm(format!(
+                "unsupported public key algorithm {other}"
+            )))
+        }
+    };
+
+    // The two families MUST agree before any cryptographic verification is
+    // attempted: dispatching on `actual_family` alone (as if the claimed
+    // family didn't matter) would silently accept a signature algorithm
+    // that names a different family than the key actually is.
+    if claimed_family != actual_family {
+        return Err(SigVerifyError::KeyFamilyMismatch {
+            claimed_family: claimed_family.label(),
+            actual_family: actual_family.label(),
+        });
+    }
+
     let digest = digest_alg.digest(signed_bytes);
 
-    match spki.algorithm.oid {
-        RSA_ENCRYPTION => verify_rsa(spki, digest_alg, &digest, signature),
-        ID_EC_PUBLIC_KEY => verify_ecdsa(spki, &digest, signature),
-        other => Err(SigVerifyError::UnsupportedSignatureAlgorithm(format!(
-            "unsupported public key algorithm {other}"
-        ))),
+    match actual_family {
+        KeyFamily::Rsa => verify_rsa(spki, digest_alg, &digest, signature),
+        KeyFamily::Ecdsa => verify_ecdsa(spki, &digest, signature),
     }
 }
 
@@ -232,5 +302,121 @@ fn verify_ecdsa(
         other => Err(SigVerifyError::UnsupportedSignatureAlgorithm(format!(
             "unsupported EC curve {other}"
         ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Algorithm-family-confusion regression tests.
+    //!
+    //! The whole point of [`verify_signature`]'s family check is that it
+    //! must reject a mismatch *before* attempting any cryptographic
+    //! verification -- so these tests use syntactically-arbitrary signature
+    //! bytes throughout. If the mismatch were not caught up front, an
+    //! attacker who also controlled the signature bytes could try to craft
+    //! something that verifies under the "wrong" scheme; catching the
+    //! mismatch first means that possibility is foreclosed entirely,
+    //! regardless of what the signature bytes contain.
+
+    use super::*;
+    use der::Decode;
+    use x509_cert::Certificate;
+
+    /// A real RSA (4096-bit) `SubjectPublicKeyInfo`, from the forged test
+    /// CA hierarchy's root certificate (see `rfc3161_adversarial_tests.rs`
+    /// for how it was generated -- reused here only for its key material,
+    /// unrelated to any of that module's chain-building tests).
+    const RSA_CERT_DER_B64: &str = "MIIEgTCCAumgAwIBAgIUARkOOwEJ2sB9s0zfODbsaLeBgSgwDQYJKoZIhvcNAQELBQAwSDEgMB4GA1UEAwwXQVRMIFRlc3QgRm9yZ2VkIFJvb3QgQ0ExJDAiBgNVBAoMG0FUTCBBZHZlcnNhcmlhbCBUZXN0IENvcnB1czAeFw0yNjA4MjQwNTA3NDJaFw0zNjA4MjEwNTA3NDJaMEgxIDAeBgNVBAMMF0FUTCBUZXN0IEZvcmdlZCBSb290IENBMSQwIgYDVQQKDBtBVEwgQWR2ZXJzYXJpYWwgVGVzdCBDb3JwdXMwggGiMA0GCSqGSIb3DQEBAQUAA4IBjwAwggGKAoIBgQCpfslT3YSjFNVHwNxPHrrOfpSqgugiJw0fSbltY6e5tHakGHWulYXxihSKnfirYWVKtwdGSolKjA9lEvuPRQykolDnMsVdAuyfD6XY6maji+23RXr/VmciNZPoJRRZ3ftNADvcJbW7wo5/n0qTSaotRPg64FL9ZE0qNKVuEGJKxTOQ3Fm26FXgSwRX+hqWAgSCIsTZuQVOC+4snSoRzLHAR18PUWp2hPRh+EUVrIU/PioY8qo5P463KOswKnMHyWvTCD97kPU0crpXIJU4GdlOe8T+UnyLhIQxEPhhL07uUk6u+jm/Ud1fWj/qrpu6u/tV0PHYHzWOIUp3+gEBZpoG8Wc32wTtzxtnyVmsEr4UoNkv1J0uBo639m558/cmAkheTKmG2N00fxQxgdlXlRcIPes08chXGTQPYBShVELMuR+DL+VUfJj+N9X2gmu7aYgDXCS0lTDuKtLzb+t3eoWy6RK2VxHDuxz8r4QEZiaz4b6cWB42fnMO38GgBi5Ew3UCAwEAAaNjMGEwHwYDVR0jBBgwFoAUbT+dlyxj6sxg3L2MB98mm24MbsswDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMCAQYwHQYDVR0OBBYEFG0/nZcsY+rMYNy9jAffJptuDG7LMA0GCSqGSIb3DQEBCwUAA4IBgQBQSn60GeRKZOjM3D67VT4Do3pZeUflrpiej7IdKhYdTVt9uAUTH5T7/E6S1FRBBv7OvP+CJp3bK4U+z5GQ40ynvKHZ766Ud0gLRApZ7+nvzwi6l7+L5wbt8PTYRwqFWWDXoaYJ65fUaz5qf4JLxWY7yc86vb/HreQLbSSjsxCe7k5+cVJgfqro93gAgFajt20uGXfXvbtYGT/ZEpN20nqft/amPXTEz2VEYQ3MEDjMmAjdwOrhjxhZQ3+2TII5/Ekad/DwJWMQuf6Cubu2XlWffGKnT887dUPhx8QB1IlBhMzo7HzFxqahtPgfjG6fB9n2iP8P1OwnfObtpR22mdXf30mMou4wYt6YSvyK9+GiInRWEL6th8epZppu+h956HJ5QBNjbyWv1tYSlUYoSMHfb04ixMv31/GvGI810B4CVy91SUhY2Yf+xPNQ2DMfQZc9mmMBesBi9sxAcXlf6P8sLbENuZnJ+P2qXShiOW+6+D34Yi/d/uBQ46A7ehbV80k=";
+
+    /// A real ECDSA P-384 `SubjectPublicKeyInfo`, extracted from a real
+    /// FreeTSA leaf certificate in the corpus used by
+    /// `rfc3161_corpus_tests.rs`.
+    const ECDSA_CERT_DER_B64: &str = "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";
+
+    fn decode_spki(cert_der_b64: &str) -> SubjectPublicKeyInfoOwned {
+        use base64::Engine;
+        let der = base64::engine::general_purpose::STANDARD.decode(cert_der_b64).unwrap();
+        let cert = Certificate::from_der(&der).unwrap();
+        cert.tbs_certificate.subject_public_key_info
+    }
+
+    fn alg_id(oid: ObjectIdentifier) -> AlgorithmIdentifierOwned {
+        AlgorithmIdentifierOwned { oid, parameters: None }
+    }
+
+    /// `signatureAlgorithm` claims ECDSA, but the key is RSA: rejected
+    /// before any cryptographic verification, regardless of what the
+    /// "signature" bytes contain.
+    #[test]
+    fn ecdsa_signature_algorithm_over_rsa_key_is_rejected() {
+        use const_oid::db::rfc5912::ECDSA_WITH_SHA_256;
+
+        let spki = decode_spki(RSA_CERT_DER_B64);
+        let sig_alg = alg_id(ECDSA_WITH_SHA_256);
+
+        let result = verify_signature(
+            &spki,
+            &sig_alg,
+            None,
+            b"arbitrary signed content",
+            b"not a real signature",
+        );
+
+        assert_eq!(
+            result,
+            Err(SigVerifyError::KeyFamilyMismatch {
+                claimed_family: "ECDSA",
+                actual_family: "RSA",
+            })
+        );
+    }
+
+    /// `signatureAlgorithm` claims RSA, but the key is ECDSA: rejected the
+    /// same way, in the opposite direction.
+    #[test]
+    fn rsa_signature_algorithm_over_ecdsa_key_is_rejected() {
+        use const_oid::db::rfc5912::SHA_256_WITH_RSA_ENCRYPTION;
+
+        let spki = decode_spki(ECDSA_CERT_DER_B64);
+        let sig_alg = alg_id(SHA_256_WITH_RSA_ENCRYPTION);
+
+        let result = verify_signature(
+            &spki,
+            &sig_alg,
+            None,
+            b"arbitrary signed content",
+            b"not a real signature",
+        );
+
+        assert_eq!(
+            result,
+            Err(SigVerifyError::KeyFamilyMismatch {
+                claimed_family: "RSA",
+                actual_family: "ECDSA",
+            })
+        );
+    }
+
+    /// Sanity check that a *matching* family/key combination is not
+    /// rejected by the family check itself (it still fails, because the
+    /// signature bytes are garbage -- but for the right reason).
+    #[test]
+    fn matching_family_is_not_rejected_by_the_family_check() {
+        use const_oid::db::rfc5912::SHA_256_WITH_RSA_ENCRYPTION;
+
+        let spki = decode_spki(RSA_CERT_DER_B64);
+        let sig_alg = alg_id(SHA_256_WITH_RSA_ENCRYPTION);
+
+        let result = verify_signature(
+            &spki,
+            &sig_alg,
+            None,
+            b"arbitrary signed content",
+            b"not a real signature",
+        );
+
+        // Must fail (the signature is garbage), but NOT with
+        // KeyFamilyMismatch -- the families agree.
+        assert_eq!(result, Err(SigVerifyError::SignatureInvalid));
     }
 }

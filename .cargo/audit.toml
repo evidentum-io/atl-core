@@ -2,13 +2,23 @@
 #
 # RUSTSEC-2023-0071 ("Marvin Attack: potential key recovery through timing
 # sidechannels", rsa crate, no fixed version available as of this writing)
-# is ignored deliberately: this crate uses `rsa` exclusively for PKCS#1 v1.5
-# *signature verification* with a public key (RFC 3161 TSA / CMS SignerInfo
-# verification in `src/core/verify/anchors/rfc3161/algorithms.rs`), never
-# for private-key decryption or signing. The Marvin Attack is a timing
-# side-channel in RSA *decryption* padding validation; it has no bearing on
-# public-key signature verification, which this crate never uses `rsa` for
-# anything else. Revisit if `rsa` ever exposes a decryption/signing code
-# path we start depending on, or when an upstream fix ships.
+# is ignored deliberately, with a precise justification -- the advisory is
+# broader than just "decryption": it covers *any* operation performed with
+# an RSA *private* key (decryption, and signing) whose timing an attacker
+# can observe, because the non-constant-time implementation leaks
+# information about that private key either way.
+#
+# This crate never holds, decrypts, or signs with an RSA private key at
+# all. `rsa` is used exclusively for PKCS#1 v1.5 *signature verification*
+# with a public key extracted from a certificate (RFC 3161 TSA / CMS
+# SignerInfo verification, `src/core/verify/anchors/rfc3161/algorithms.rs`,
+# `verify_rsa`). Public-key verification is modular exponentiation with the
+# public exponent against data anyone can already see; there is no private
+# key on this code path for a timing side-channel to leak information
+# about.
+#
+# Revisit this ignore immediately if this crate ever grows an RSA
+# decryption or RSA signing (private-key) code path -- at that point the
+# advisory applies in full and this ignore must be removed, not extended.
 [advisories]
 ignore = ["RUSTSEC-2023-0071"]

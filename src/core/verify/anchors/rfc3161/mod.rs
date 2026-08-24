@@ -19,7 +19,9 @@
 //!
 //! RSA PKCS#1 v1.5 (bare `rsaEncryption` and composite
 //! `shaNNNWithRSAEncryption` OIDs) with SHA-256/384/512, and ECDSA on
-//! P-384/P-256. See [`algorithms`] for the exact OID-resolution rules.
+//! P-384/P-256. **Not implemented**: P-521, RSA-PSS. See [`algorithms`] for
+//! the exact OID-resolution rules and what happens to an unsupported
+//! algorithm (a clean rejection, not a silent mismatch).
 //!
 //! ## Pure Rust, no OpenSSL
 //!
@@ -83,12 +85,41 @@ pub struct Rfc3161VerifyResult {
 /// Decodes a timestamp token in the format `"base64:..."`, verifies it is a
 /// CMS `SignedData` wrapping a `TSTInfo`, and returns both.
 ///
+/// ## A narrow `genTime` profile -- this is not full RFC 3161 support
+///
+/// RFC 3161's `TSTInfo.genTime` is a `GeneralizedTime`, and RFC 3161
+/// explicitly permits (does not require) a fractional-seconds component on
+/// it, with canonical constraints on how it's expressed. DER itself does
+/// not forbid fractional seconds on `GeneralizedTime` -- the restriction
+/// this module actually inherits is narrower and comes from one specific
+/// dependency: the `der` crate's [`GeneralizedTime`](der::asn1::GeneralizedTime)
+/// type implements the *PKIX* profile from RFC 5280 §4.1.2.5.2 ("GeneralizedTime
+/// values MUST NOT include fractional seconds"), because that crate is built
+/// primarily for X.509 certificates, not RFC 3161 tokens. This module reuses
+/// that same type for `TSTInfo.genTime` rather than maintaining a second,
+/// RFC-3161-flavored `GeneralizedTime` decoder, so it inherits the RFC 5280
+/// restriction along with it -- a real deliberate trade-off (one decoder,
+/// one dependency), but a genuine gap against the RFC 3161 grammar, not a
+/// DER limitation. A token whose `genTime` carries fractional seconds is
+/// rejected here as a consequence, and rejected cleanly: this function
+/// returns [`AtlError::Rfc3161ParseError`] naming `GeneralizedTime` in the
+/// message (via the underlying `TSTInfo decode failed: ...` wrapping), not a
+/// panic or an opaque failure -- see `fractional_seconds_gen_time_is_rejected_cleanly`
+/// in `rfc3161_adversarial_tests.rs` for a token exercising exactly this.
+/// None of the tokens in this crate's real-world test corpus
+/// (`rfc3161_corpus_tests.rs`) use fractional seconds; if a real TSA that
+/// does turns up, supporting it (either a custom decoder for this one field,
+/// or upstreaming RFC 3161 support to `der`) is a deliberate follow-up, not
+/// a side effect of this module quietly claiming more RFC 3161 coverage than
+/// it has.
+///
 /// ## Errors
 ///
 /// Returns [`AtlError::Rfc3161ParseError`] if the token does not have the
 /// `"base64:"` prefix, base64 decoding fails, the token exceeds
 /// [`MAX_TOKEN_SIZE`], or any of the CMS `ContentInfo`/`SignedData`/`TSTInfo`
-/// structures fail to decode.
+/// structures fail to decode (including a `genTime` with fractional
+/// seconds; see above).
 pub fn parse_rfc3161_token(token_der: &str) -> AtlResult<ParsedTimestampToken> {
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
@@ -351,21 +382,28 @@ fn build_signer_facts(cert: &Certificate) -> Option<SignerFacts> {
 /// Verify an RFC 3161 anchor and adapt the result into the crate's generic
 /// [`AnchorVerificationResult`] shape used by the receipt-level verifier.
 ///
-/// This is a **backwards-compatible adapter**, not the primary API: it
-/// collapses [`Rfc3161AnchorFacts`] down to a single `is_valid: bool` via
+/// This is an **adapter**, not the primary API: it collapses
+/// [`Rfc3161AnchorFacts`] down to a single `is_valid: bool` via
 /// [`Rfc3161AnchorFacts::is_fully_valid`], which is `false` whenever
-/// `trust_store` is `None` (there being no `TrustStore` plumbed through the
-/// receipt-level `VerifyOptions` yet -- callers who need `Trusted` anchoring
-/// should call [`verify_rfc3161_token`] directly with a `TrustStore`).
+/// `trust_store` is `None`. `TrustStore` *is* plumbed all the way through
+/// the receipt-level `VerifyOptions` (see
+/// `VerifyOptions::rfc3161_trust_store` and
+/// `AnchorVerificationContext::with_rfc3161_trust_store`) -- callers going
+/// through `ReceiptVerifier` get `Trusted` anchoring by configuring that
+/// field; this function's `trust_store` parameter is exactly what
+/// `helpers::verify_rfc3161_anchor` forwards from there. Calling
+/// [`verify_rfc3161_token`] directly remains the richer option when the
+/// full fact set (not just `is_valid`) is wanted.
 #[must_use]
 pub fn verify_rfc3161_anchor_impl(
     timestamp: &str,
     token_der: &str,
     expected_root: &[u8; 32],
+    trust_store: Option<&TrustStore>,
 ) -> AnchorVerificationResult {
     use super::super::iso8601::parse_iso8601_to_nanos;
 
-    match verify_rfc3161_token(token_der, expected_root, None) {
+    match verify_rfc3161_token(token_der, expected_root, trust_store) {
         Ok(facts) => {
             let ts = facts.gen_time.or_else(|| parse_iso8601_to_nanos(timestamp));
             let error = if facts.is_fully_valid() { None } else { Some(summarize(&facts)) };

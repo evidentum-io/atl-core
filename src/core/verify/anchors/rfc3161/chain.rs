@@ -104,50 +104,51 @@ pub(super) fn check_timestamping_eku(cert: &Certificate) -> bool {
     critical && eku.0.len() == 1 && eku.0[0] == ID_KP_TIME_STAMPING
 }
 
-/// Whitelist of recognized X.509v3 extension OIDs. A certificate carrying a
-/// *critical* extension outside this set is rejected outright, per RFC 5280
-/// ("a certificate-using system MUST reject the certificate if it
-/// encounters a critical extension it does not recognize").
-fn is_recognized_extension(oid: &der::asn1::ObjectIdentifier) -> bool {
-    use const_oid::db::rfc5280::{
-        ID_CE_AUTHORITY_KEY_IDENTIFIER, ID_CE_BASIC_CONSTRAINTS, ID_CE_CERTIFICATE_POLICIES,
-        ID_CE_CRL_DISTRIBUTION_POINTS, ID_CE_EXT_KEY_USAGE, ID_CE_FRESHEST_CRL,
-        ID_CE_INHIBIT_ANY_POLICY, ID_CE_ISSUER_ALT_NAME, ID_CE_KEY_USAGE, ID_CE_NAME_CONSTRAINTS,
-        ID_CE_POLICY_CONSTRAINTS, ID_CE_POLICY_MAPPINGS, ID_CE_PRIVATE_KEY_USAGE_PERIOD,
-        ID_CE_SUBJECT_ALT_NAME, ID_CE_SUBJECT_DIRECTORY_ATTRIBUTES, ID_CE_SUBJECT_KEY_IDENTIFIER,
-        ID_PE_AUTHORITY_INFO_ACCESS, ID_PE_SUBJECT_INFO_ACCESS,
-    };
+/// A *critical* extension is tolerated only when this crate actually
+/// applies its semantics somewhere in chain validation, for the role the
+/// certificate carrying it plays. That set is deliberately small today:
+/// `BasicConstraints` (CA/leaf distinction, `pathLenConstraint`, checked on
+/// every non-leaf certificate), `KeyUsage` (`keyCertSign` on non-leaf
+/// certificates via [`key_usage_allows_cert_signing`], `digitalSignature`/
+/// `nonRepudiation` on the leaf via [`key_usage_allows_signing`]), and
+/// `ExtendedKeyUsage` (the leaf's exclusive `id-kp-timeStamping`
+/// requirement via [`super::check_timestamping_eku`], and
+/// `id-kp-timeStamping`/`anyExtendedKeyUsage` on non-leaf certificates via
+/// [`eku_permits_time_stamping_issuance`]). Naming an OID here without
+/// actually enforcing its semantics *for every role that can carry it*
+/// would recreate exactly the gap this whitelist exists to close -- a
+/// certificate can be a leaf on one path and, in principle, is always
+/// evaluated per its actual position in `walk()`, never assumed compliant
+/// just because its extension's OID is recognized in the abstract.
+///
+/// RFC 5280 4.2: "a certificate-using system MUST reject the certificate if
+/// it encounters a critical extension it does not recognize **or a critical
+/// extension that it does recognize but is not able to process**." Knowing
+/// an OID's name is not "processing" it: `NameConstraints`,
+/// `PolicyConstraints`, `CertificatePolicies`, `PolicyMappings`,
+/// `InhibitAnyPolicy`, `PrivateKeyUsagePeriod`, and every other extension
+/// this module does not evaluate are therefore rejected when critical, even
+/// though their OIDs are perfectly well known -- a critical
+/// `NameConstraints` that excludes our leaf, silently ignored, would be
+/// exactly the kind of hole this check exists to close. A non-critical
+/// occurrence of any of these is fine either way: nothing here inspects
+/// their content, so nothing here can silently violate a constraint it
+/// never reads.
+fn is_processed_critical_extension(oid: &der::asn1::ObjectIdentifier) -> bool {
+    use const_oid::db::rfc5280::{ID_CE_BASIC_CONSTRAINTS, ID_CE_EXT_KEY_USAGE, ID_CE_KEY_USAGE};
 
-    const RECOGNIZED: &[der::asn1::ObjectIdentifier] = &[
-        ID_CE_SUBJECT_KEY_IDENTIFIER,
-        ID_CE_KEY_USAGE,
-        ID_CE_PRIVATE_KEY_USAGE_PERIOD,
-        ID_CE_SUBJECT_ALT_NAME,
-        ID_CE_ISSUER_ALT_NAME,
-        ID_CE_BASIC_CONSTRAINTS,
-        ID_CE_NAME_CONSTRAINTS,
-        ID_CE_CRL_DISTRIBUTION_POINTS,
-        ID_CE_CERTIFICATE_POLICIES,
-        ID_CE_POLICY_MAPPINGS,
-        ID_CE_AUTHORITY_KEY_IDENTIFIER,
-        ID_CE_POLICY_CONSTRAINTS,
-        ID_CE_EXT_KEY_USAGE,
-        ID_CE_FRESHEST_CRL,
-        ID_CE_INHIBIT_ANY_POLICY,
-        ID_CE_SUBJECT_DIRECTORY_ATTRIBUTES,
-        ID_PE_AUTHORITY_INFO_ACCESS,
-        ID_PE_SUBJECT_INFO_ACCESS,
-    ];
-    RECOGNIZED.contains(oid)
+    const PROCESSED: &[der::asn1::ObjectIdentifier] =
+        &[ID_CE_BASIC_CONSTRAINTS, ID_CE_KEY_USAGE, ID_CE_EXT_KEY_USAGE];
+    PROCESSED.contains(oid)
 }
 
-fn has_unrecognized_critical_extension(cert: &Certificate) -> bool {
+fn has_unprocessed_critical_extension(cert: &Certificate) -> bool {
     cert.tbs_certificate
         .extensions
         .as_deref()
         .unwrap_or(&[])
         .iter()
-        .any(|ext| ext.critical && !is_recognized_extension(&ext.extn_id))
+        .any(|ext| ext.critical && !is_processed_critical_extension(&ext.extn_id))
 }
 
 fn validity_covers(cert: &Certificate, gen_time: Duration) -> bool {
@@ -168,6 +169,61 @@ fn key_usage_allows_cert_signing(cert: &Certificate) -> Result<bool, ()> {
     match cert.tbs_certificate.get::<KeyUsage>() {
         Ok(None) => Ok(true), // KeyUsage is optional; absence is not a rejection.
         Ok(Some((_, ku))) => Ok(ku.0.contains(KeyUsages::KeyCertSign)),
+        Err(_) => Err(()),
+    }
+}
+
+/// `KeyUsage`, if present on the *signer* (leaf) certificate, must permit
+/// signing: `digitalSignature` and/or `nonRepudiation` (contentCommitment).
+///
+/// This is a **local policy of this crate**, derived from the `KeyUsage`
+/// semantics of RFC 5280 4.2.1.3, not a requirement quoted from RFC 3161.
+/// (RFC 3161 2.3 constrains the *extended* key usage -- the critical,
+/// exclusive `id-kp-timeStamping` -- which is enforced separately on the
+/// CMS signer; it does not impose this `KeyUsage` rule.)
+///
+/// Absence is not a rejection -- `KeyUsage` is optional -- but *presence
+/// without either bit* means the certificate's own issuer has declared this
+/// key may not be used to produce signatures at all, which this crate must
+/// not silently accept just because it also happens to carry a timestamping
+/// EKU.
+///
+/// Scope, stated precisely: this checks only that a signing bit is
+/// *present*. It deliberately does **not** enforce exclusivity (that no
+/// other `KeyUsage` bit is set); do not read this function as doing so.
+fn key_usage_allows_signing(cert: &Certificate) -> Result<bool, ()> {
+    match cert.tbs_certificate.get::<KeyUsage>() {
+        Ok(None) => Ok(true),
+        Ok(Some((_, ku))) => {
+            Ok(ku.0.contains(KeyUsages::DigitalSignature)
+                || ku.0.contains(KeyUsages::NonRepudiation))
+        }
+        Err(_) => Err(()),
+    }
+}
+
+/// `ExtendedKeyUsage`, if present on a certificate *above* the leaf (an
+/// intermediate or a trust-store-matched terminal), must include
+/// `id-kp-timeStamping` or `anyExtendedKeyUsage` -- otherwise that CA has
+/// declared its key is restricted to purposes that do not cover issuing
+/// (directly or transitively) a timestamping certificate, per RFC 5280
+/// 4.2.1.12 ("the certificate MUST only be used for one of the purposes
+/// indicated"). Applied regardless of whether the extension is marked
+/// critical: `EKU`'s "MUST only be used for" language does not hinge on
+/// criticality, and this crate already promised (by including
+/// `ExtendedKeyUsage` in the processed-critical-extension set) to actually
+/// evaluate this extension's semantics wherever it appears in the chain,
+/// not just on the leaf. Absence is not a rejection.
+fn eku_permits_time_stamping_issuance(cert: &Certificate) -> Result<bool, ()> {
+    use const_oid::db::rfc5280::ANY_EXTENDED_KEY_USAGE;
+    use const_oid::db::rfc5280::ID_KP_TIME_STAMPING;
+
+    match cert.tbs_certificate.get::<ExtendedKeyUsage>() {
+        Ok(None) => Ok(true),
+        Ok(Some((_, eku))) => Ok(eku
+            .0
+            .iter()
+            .any(|oid| *oid == ID_KP_TIME_STAMPING || *oid == ANY_EXTENDED_KEY_USAGE)),
         Err(_) => Err(()),
     }
 }
@@ -256,11 +312,18 @@ fn walk(
     if !validity_covers(current, gen_time) {
         return Outcome::Invalid;
     }
-    if has_unrecognized_critical_extension(current) {
+    if has_unprocessed_critical_extension(current) {
         return Outcome::Invalid;
     }
 
-    if !is_leaf {
+    if is_leaf {
+        // The signer certificate's own key must actually be usable for
+        // signing, if it says anything about the subject at all.
+        match key_usage_allows_signing(current) {
+            Ok(true) => {}
+            Ok(false) | Err(()) => return Outcome::Invalid,
+        }
+    } else {
         // Everything above the leaf must be a CA per BasicConstraints, and
         // respect its own pathLenConstraint against the number of
         // intermediate CAs already consumed below it.
@@ -276,6 +339,10 @@ fn walk(
             Err(()) => return Outcome::Invalid,
         }
         match key_usage_allows_cert_signing(current) {
+            Ok(true) => {}
+            Ok(false) | Err(()) => return Outcome::Invalid,
+        }
+        match eku_permits_time_stamping_issuance(current) {
             Ok(true) => {}
             Ok(false) | Err(()) => return Outcome::Invalid,
         }
@@ -377,5 +444,177 @@ pub(super) fn verify_chain(
             terminal: None,
             chain_valid_at_gen_time: false,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Regression tests for role-aware `KeyUsage`/`ExtendedKeyUsage`
+    //! enforcement, built from hand-constructed `Certificate` values
+    //! (no signature relationship needed: both checks fire on `current`
+    //! before `walk()` ever looks for an issuer candidate, so a
+    //! syntactically-valid, self-consistent certificate is enough).
+
+    use super::*;
+    use der::asn1::{BitString, GeneralizedTime, ObjectIdentifier, OctetString};
+    use der::{DateTime, Encode};
+    use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
+    use x509_cert::ext::Extension;
+    use x509_cert::name::Name;
+    use x509_cert::serial_number::SerialNumber;
+    use x509_cert::time::{Time, Validity};
+    use x509_cert::TbsCertificate;
+
+    fn dummy_algorithm_identifier() -> AlgorithmIdentifierOwned {
+        use const_oid::db::rfc5912::SHA_256_WITH_RSA_ENCRYPTION;
+        AlgorithmIdentifierOwned { oid: SHA_256_WITH_RSA_ENCRYPTION, parameters: None }
+    }
+
+    fn dummy_spki() -> SubjectPublicKeyInfoOwned {
+        use const_oid::db::rfc5912::RSA_ENCRYPTION;
+        SubjectPublicKeyInfoOwned {
+            algorithm: AlgorithmIdentifierOwned { oid: RSA_ENCRYPTION, parameters: None },
+            subject_public_key: BitString::new(0, vec![0u8]).unwrap(),
+        }
+    }
+
+    fn test_gen_time() -> Duration {
+        DateTime::new(2026, 1, 1, 0, 0, 0).unwrap().unix_duration()
+    }
+
+    fn extension(oid: ObjectIdentifier, critical: bool, value: impl Encode) -> Extension {
+        Extension {
+            extn_id: oid,
+            critical,
+            extn_value: OctetString::new(value.to_der().unwrap()).unwrap(),
+        }
+    }
+
+    /// A syntactically-valid, self-consistent certificate (unsigned --
+    /// nothing in these tests checks the signature) valid from 2000 to
+    /// 2100, carrying exactly the given extensions.
+    fn cert_with_extensions(extensions: Vec<Extension>) -> Certificate {
+        let not_before = Time::GeneralTime(GeneralizedTime::from_date_time(
+            DateTime::new(2000, 1, 1, 0, 0, 0).unwrap(),
+        ));
+        let not_after = Time::GeneralTime(GeneralizedTime::from_date_time(
+            DateTime::new(2100, 1, 1, 0, 0, 0).unwrap(),
+        ));
+
+        let tbs_certificate = TbsCertificate {
+            version: x509_cert::Version::V3,
+            serial_number: SerialNumber::new(&[1]).unwrap(),
+            signature: dummy_algorithm_identifier(),
+            issuer: Name::default(),
+            validity: Validity { not_before, not_after },
+            subject: Name::default(),
+            subject_public_key_info: dummy_spki(),
+            issuer_unique_id: None,
+            subject_unique_id: None,
+            extensions: Some(extensions),
+        };
+
+        Certificate {
+            tbs_certificate,
+            signature_algorithm: dummy_algorithm_identifier(),
+            signature: BitString::new(0, vec![0u8]).unwrap(),
+        }
+    }
+
+    /// A leaf certificate whose `KeyUsage` is present, critical, and does
+    /// *not* include `digitalSignature` or `nonRepudiation` (only
+    /// `keyEncipherment`) must be rejected -- the certificate's own issuer
+    /// has declared this key may not produce signatures at all.
+    #[test]
+    fn leaf_key_usage_without_signing_bits_is_rejected() {
+        use const_oid::db::rfc5280::ID_CE_KEY_USAGE;
+
+        let ku = KeyUsage(KeyUsages::KeyEncipherment.into());
+        let leaf = cert_with_extensions(vec![extension(ID_CE_KEY_USAGE, true, ku)]);
+
+        let empty_store = TrustStore::new();
+        let ctx = WalkCtx { gen_time: test_gen_time(), pool: &[], trust_store: &empty_store };
+        let outcome = walk(&ctx, &leaf, true, &[], 0, 0);
+
+        assert_eq!(outcome, Outcome::Invalid);
+    }
+
+    /// A leaf certificate whose `KeyUsage` *does* include `digitalSignature`
+    /// is not rejected by this check (sanity check for the positive case).
+    /// It still can't reach `Trusted`/`Assumed`: issuer and subject are
+    /// both the empty `Name` (so name-wise it looks self-signed), but the
+    /// dummy zero-byte key/signature cannot possibly verify, so
+    /// `is_self_signed` is false and there is no candidate issuer in an
+    /// empty pool either -- `Incomplete`, not `Invalid`. The point of this
+    /// test is specifically that it is *not* rejected for the KeyUsage
+    /// reason the previous test checks.
+    #[test]
+    fn leaf_key_usage_with_digital_signature_passes_the_check() {
+        use const_oid::db::rfc5280::ID_CE_KEY_USAGE;
+
+        let ku = KeyUsage(KeyUsages::DigitalSignature.into());
+        let leaf = cert_with_extensions(vec![extension(ID_CE_KEY_USAGE, true, ku)]);
+
+        let empty_store = TrustStore::new();
+        let ctx = WalkCtx { gen_time: test_gen_time(), pool: &[], trust_store: &empty_store };
+        let outcome = walk(&ctx, &leaf, true, &[], 0, 0);
+
+        assert_eq!(outcome, Outcome::Incomplete);
+    }
+
+    /// An intermediate certificate whose `ExtendedKeyUsage` is present,
+    /// critical, and names only `id-kp-serverAuth` (neither
+    /// `id-kp-timeStamping` nor `anyExtendedKeyUsage`) must be rejected --
+    /// that CA has declared its key restricted to a purpose that does not
+    /// cover issuing a timestamping certificate.
+    #[test]
+    fn intermediate_eku_without_timestamping_or_any_is_rejected() {
+        use const_oid::db::rfc5280::{
+            ID_CE_BASIC_CONSTRAINTS, ID_CE_EXT_KEY_USAGE, ID_CE_KEY_USAGE, ID_KP_SERVER_AUTH,
+        };
+
+        let bc = BasicConstraints { ca: true, path_len_constraint: None };
+        let ku = KeyUsage(KeyUsages::KeyCertSign.into());
+        let eku = ExtendedKeyUsage(vec![ID_KP_SERVER_AUTH]);
+        let intermediate = cert_with_extensions(vec![
+            extension(ID_CE_BASIC_CONSTRAINTS, true, bc),
+            extension(ID_CE_KEY_USAGE, true, ku),
+            extension(ID_CE_EXT_KEY_USAGE, true, eku),
+        ]);
+
+        let empty_store = TrustStore::new();
+        let ctx = WalkCtx { gen_time: test_gen_time(), pool: &[], trust_store: &empty_store };
+        let outcome = walk(&ctx, &intermediate, false, &[], 0, 1);
+
+        assert_eq!(outcome, Outcome::Invalid);
+    }
+
+    /// The same intermediate, but its `ExtendedKeyUsage` includes
+    /// `id-kp-timeStamping`: the EKU check itself must not reject it (it
+    /// still can't go further here -- empty pool, so `Incomplete` -- but
+    /// crucially *not* rejected for the reason the previous test checks).
+    #[test]
+    fn intermediate_eku_with_timestamping_is_not_rejected_by_the_eku_check() {
+        use const_oid::db::rfc5280::{
+            ID_CE_BASIC_CONSTRAINTS, ID_CE_EXT_KEY_USAGE, ID_CE_KEY_USAGE, ID_KP_TIME_STAMPING,
+        };
+
+        let bc = BasicConstraints { ca: true, path_len_constraint: None };
+        let ku = KeyUsage(KeyUsages::KeyCertSign.into());
+        let eku = ExtendedKeyUsage(vec![ID_KP_TIME_STAMPING]);
+        let intermediate = cert_with_extensions(vec![
+            extension(ID_CE_BASIC_CONSTRAINTS, true, bc),
+            extension(ID_CE_KEY_USAGE, true, ku),
+            extension(ID_CE_EXT_KEY_USAGE, true, eku),
+        ]);
+
+        let empty_store = TrustStore::new();
+        let ctx = WalkCtx { gen_time: test_gen_time(), pool: &[], trust_store: &empty_store };
+        let outcome = walk(&ctx, &intermediate, false, &[], 0, 1);
+
+        // No candidate issuer in an empty pool -- Incomplete, not Invalid.
+        // The point is that it is NOT Invalid (which is what the EKU
+        // check, if it wrongly fired, would produce).
+        assert_eq!(outcome, Outcome::Incomplete);
     }
 }

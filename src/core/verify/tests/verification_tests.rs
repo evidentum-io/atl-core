@@ -287,6 +287,8 @@ fn test_receipt_verifier_with_options() {
         skip_anchors: true,
         skip_consistency: true,
         min_valid_anchors: 0,
+        #[cfg(feature = "rfc3161-verify")]
+        rfc3161_trust_store: None,
     };
 
     #[allow(deprecated)]

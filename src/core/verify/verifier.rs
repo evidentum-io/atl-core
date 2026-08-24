@@ -268,10 +268,17 @@ impl ReceiptVerifier {
         // STEP 5: Verify Anchors (optional)
         if !self.options.skip_anchors && !receipt.anchors.is_empty() {
             // Create anchor verification context with both roots
-            let anchor_context = crate::core::verify::helpers::AnchorVerificationContext::new(
+            #[allow(unused_mut)]
+            let mut anchor_context = crate::core::verify::helpers::AnchorVerificationContext::new(
                 result.root_hash,
                 result.super_root,
             );
+            // Thread the caller-supplied RFC 3161 trust material through --
+            // never anything derived from the receipt or the token itself.
+            #[cfg(feature = "rfc3161-verify")]
+            if let Some(store) = self.options.rfc3161_trust_store.clone() {
+                anchor_context = anchor_context.with_rfc3161_trust_store(store);
+            }
 
             for anchor in &receipt.anchors {
                 let anchor_result = verify_anchor(anchor, &anchor_context);

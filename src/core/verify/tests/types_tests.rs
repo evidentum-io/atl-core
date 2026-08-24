@@ -287,6 +287,8 @@ fn test_verify_options_custom() {
         skip_anchors: true,
         skip_consistency: true,
         min_valid_anchors: 2,
+        #[cfg(feature = "rfc3161-verify")]
+        rfc3161_trust_store: None,
     };
 
     assert_eq!(options.signature_mode, SignatureMode::Require);
@@ -303,6 +305,8 @@ fn test_verify_options_clone() {
         skip_anchors: false,
         skip_consistency: false,
         min_valid_anchors: 1,
+        #[cfg(feature = "rfc3161-verify")]
+        rfc3161_trust_store: None,
     };
 
     let cloned = options.clone();

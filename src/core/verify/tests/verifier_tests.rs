@@ -645,6 +645,8 @@ mod anchor_only_tests {
             skip_anchors: false,
             skip_consistency: false,
             min_valid_anchors: 1,
+            #[cfg(feature = "rfc3161-verify")]
+            rfc3161_trust_store: None,
         };
 
         // Act
@@ -738,6 +740,8 @@ mod signature_verification_tests {
             skip_anchors: false,
             skip_consistency: false,
             min_valid_anchors: 0,
+            #[cfg(feature = "rfc3161-verify")]
+            rfc3161_trust_store: None,
         };
         let verifier = ReceiptVerifier::with_key_and_options(checkpoint_verifier, options);
         let receipt = make_test_receipt();
@@ -758,6 +762,8 @@ mod signature_verification_tests {
             skip_anchors: false,
             skip_consistency: false,
             min_valid_anchors: 0,
+            #[cfg(feature = "rfc3161-verify")]
+            rfc3161_trust_store: None,
         };
         let verifier = ReceiptVerifier::anchor_only_with_options(options);
         let receipt = make_test_receipt();
