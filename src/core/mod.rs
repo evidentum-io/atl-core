@@ -89,4 +89,7 @@ pub use verify::{verify_receipt, verify_receipt_json};
 
 // RFC 3161 timestamp verification (feature-gated)
 #[cfg(feature = "rfc3161-verify")]
-pub use verify::{ParsedTimestampToken, Rfc3161VerifyResult};
+pub use verify::{
+    ParsedTimestampToken, PathStatus, Revocation, Rfc3161AnchorFacts, Rfc3161VerifyResult,
+    SignerFacts, TerminalAnchor, TrustStore,
+};

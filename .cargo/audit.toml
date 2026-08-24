@@ -1,0 +1,14 @@
+# cargo-audit configuration.
+#
+# RUSTSEC-2023-0071 ("Marvin Attack: potential key recovery through timing
+# sidechannels", rsa crate, no fixed version available as of this writing)
+# is ignored deliberately: this crate uses `rsa` exclusively for PKCS#1 v1.5
+# *signature verification* with a public key (RFC 3161 TSA / CMS SignerInfo
+# verification in `src/core/verify/anchors/rfc3161/algorithms.rs`), never
+# for private-key decryption or signing. The Marvin Attack is a timing
+# side-channel in RSA *decryption* padding validation; it has no bearing on
+# public-key signature verification, which this crate never uses `rsa` for
+# anything else. Revisit if `rsa` ever exposes a decryption/signing code
+# path we start depending on, or when an upstream fix ships.
+[advisories]
+ignore = ["RUSTSEC-2023-0071"]

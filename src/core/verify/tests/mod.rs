@@ -1,6 +1,8 @@
 //! Tests for the verify module
 
 mod convenience_tests;
+mod rfc3161_adversarial_tests;
+mod rfc3161_corpus_tests;
 mod rfc3161_tests;
 mod types_tests;
 mod verification_tests;

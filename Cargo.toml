@@ -1,6 +1,6 @@
 [package]
 name = "atl-core"
-version = "0.23.2"
+version = "0.24.0"
 edition = "2021"
 rust-version = "1.92.0"
 authors = ["Dmitrii Zatona <dmitrii@zatona.dev>"]
@@ -15,7 +15,7 @@ categories = ["cryptography", "data-structures"]
 
 [dependencies]
 # Core cryptographic dependencies (always required)
-sha2 = "0.10"
+sha2 = { version = "0.10", features = ["oid"] }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -26,8 +26,26 @@ base64 = "0.22"
 subtle = "2"
 
 # Optional cryptographic dependencies
-cryptographic-message-syntax = { version = "0.27", optional = true }
-bcder = { version = "0.7", optional = true }
+#
+# RFC 3161 / CMS / X.509 verification stack (pure Rust, RustCrypto `formats`
+# and `signatures` ecosystems -- no OpenSSL FFI, compatible with
+# `unsafe_code = "forbid"`). Pinned to the last stable (non-RC) release line
+# across the whole ecosystem so `der`/`spki`/`x509-cert` types are literally
+# the same types everywhere (no cross-version `Any`/`ObjectIdentifier`
+# conversions needed).
+x509-tsp = { version = "0.1", optional = true }
+cms = { version = "0.2", optional = true }
+x509-cert = { version = "0.2", optional = true }
+der = { version = "0.7", optional = true }
+spki = { version = "0.7", optional = true }
+const-oid = { version = "0.9", features = ["db"], optional = true }
+rsa = { version = "0.9", default-features = false, features = ["std", "pkcs5", "sha2"], optional = true }
+sha1 = { version = "0.10", features = ["oid"], optional = true }
+ecdsa = { version = "0.16", features = ["der", "pkcs8"], optional = true }
+p384 = { version = "0.13", features = ["ecdsa", "pkcs8"], optional = true }
+p256 = { version = "0.13", features = ["ecdsa", "pkcs8"], optional = true }
+signature = { version = "2", optional = true }
+
 bitcoin_hashes = { version = "0.14", optional = true }
 
 [dev-dependencies]
@@ -36,7 +54,20 @@ criterion = "0.5"
 
 [features]
 default = ["rfc3161-verify", "bitcoin-ots"]
-rfc3161-verify = ["dep:cryptographic-message-syntax", "dep:bcder"]
+rfc3161-verify = [
+    "dep:x509-tsp",
+    "dep:cms",
+    "dep:x509-cert",
+    "dep:der",
+    "dep:spki",
+    "dep:const-oid",
+    "dep:rsa",
+    "dep:sha1",
+    "dep:ecdsa",
+    "dep:p384",
+    "dep:p256",
+    "dep:signature",
+]
 bitcoin-ots = ["dep:bitcoin_hashes"]
 
 [[bench]]

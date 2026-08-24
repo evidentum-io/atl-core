@@ -211,7 +211,10 @@ pub use core::verify::{verify_receipt, verify_receipt_json};
 
 // RFC 3161 timestamp verification (feature-gated)
 #[cfg(feature = "rfc3161-verify")]
-pub use core::verify::{ParsedTimestampToken, Rfc3161VerifyResult};
+pub use core::verify::{
+    ParsedTimestampToken, PathStatus, Revocation, Rfc3161AnchorFacts, Rfc3161VerifyResult,
+    SignerFacts, TerminalAnchor, TrustStore,
+};
 
 // JCS canonicalization
 pub use core::jcs::{canonicalize, canonicalize_and_hash};
