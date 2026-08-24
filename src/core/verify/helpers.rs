@@ -26,13 +26,43 @@ pub struct AnchorVerificationContext {
 
     /// Super-Tree root hash (from `super_proof.super_root`) - REQUIRED
     pub super_root: Hash,
+
+    /// Trust material for RFC 3161 anchor chain verification.
+    ///
+    /// `None` (the default) means an RFC 3161 anchor can, at best, reach
+    /// `TerminalAnchor::Assumed` -- never `Trusted` -- regardless of how
+    /// cryptographically sound the token is. This is never populated from
+    /// anything found inside the receipt or the token itself; it only ever
+    /// carries what the caller explicitly supplied via
+    /// [`VerifyOptions::rfc3161_trust_store`](super::types::VerifyOptions::rfc3161_trust_store).
+    #[cfg(feature = "rfc3161-verify")]
+    pub rfc3161_trust_store: Option<crate::core::verify::anchors::rfc3161::TrustStore>,
 }
 
 impl AnchorVerificationContext {
     /// Create context for v2.0 receipt (mandatory fields)
     #[must_use]
     pub const fn new(data_tree_root: Hash, super_root: Hash) -> Self {
-        Self { data_tree_root, super_root }
+        Self {
+            data_tree_root,
+            super_root,
+            #[cfg(feature = "rfc3161-verify")]
+            rfc3161_trust_store: None,
+        }
+    }
+
+    /// Attach caller-supplied RFC 3161 trust material.
+    ///
+    /// Never call this with a certificate extracted from the token being
+    /// verified -- see the type-level note above.
+    #[cfg(feature = "rfc3161-verify")]
+    #[must_use]
+    pub fn with_rfc3161_trust_store(
+        mut self,
+        store: crate::core::verify::anchors::rfc3161::TrustStore,
+    ) -> Self {
+        self.rfc3161_trust_store = Some(store);
+        self
     }
 
     /// Get expected hash for target
@@ -246,8 +276,22 @@ fn verify_rfc3161_anchor(
         };
     }
 
-    // 5. Proceed with cryptographic verification using expected_root
-    verify_rfc3161_anchor_impl(timestamp, token_der, expected_root)
+    // 5. Proceed with cryptographic verification using expected_root. The
+    // trust store, if any, comes only from the caller's VerifyOptions --
+    // never from anything inside the receipt or the token.
+    #[cfg(feature = "rfc3161-verify")]
+    {
+        verify_rfc3161_anchor_impl(
+            timestamp,
+            token_der,
+            expected_root,
+            context.rfc3161_trust_store.as_ref(),
+        )
+    }
+    #[cfg(not(feature = "rfc3161-verify"))]
+    {
+        verify_rfc3161_anchor_impl(timestamp, token_der, expected_root)
+    }
 }
 
 /// Constant-time hash comparison
@@ -267,9 +311,10 @@ pub fn verify_rfc3161_anchor_impl(
     timestamp: &str,
     token_der: &str,
     expected_root: &[u8; 32],
+    trust_store: Option<&crate::core::verify::anchors::rfc3161::TrustStore>,
 ) -> AnchorVerificationResult {
     use super::anchors::rfc3161::verify_rfc3161_anchor_impl;
-    verify_rfc3161_anchor_impl(timestamp, token_der, expected_root)
+    verify_rfc3161_anchor_impl(timestamp, token_der, expected_root, trust_store)
 }
 
 /// Verify RFC 3161 anchor implementation (without feature flag)

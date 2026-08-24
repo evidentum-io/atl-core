@@ -31,7 +31,10 @@ pub use super_tree::{
 };
 
 #[cfg(feature = "rfc3161-verify")]
-pub use anchors::rfc3161::{ParsedTimestampToken, Rfc3161VerifyResult};
+pub use anchors::rfc3161::{
+    ParsedTimestampToken, PathStatus, Revocation, Rfc3161AnchorFacts, Rfc3161VerifyResult,
+    SignerFacts, TerminalAnchor, TrustStore,
+};
 
 #[cfg(feature = "bitcoin-ots")]
 pub use anchors::bitcoin_ots::{verify_ots_anchor_impl, OtsVerifyResult};

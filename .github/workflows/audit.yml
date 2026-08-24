@@ -18,3 +18,14 @@ jobs:
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # RUSTSEC-2023-0071 ("Marvin Attack", rsa crate, no fix
+          # available): the advisory covers any operation performed with an
+          # RSA *private* key (decryption or signing) whose timing an
+          # attacker can observe -- broader than "decryption" alone. This
+          # crate never holds or operates on an RSA private key; `rsa` is
+          # used only for PKCS#1 v1.5 signature *verification* with a
+          # public key (RFC 3161/CMS SignerInfo verification), which has no
+          # private-key timing side-channel to leak. Revisit immediately if
+          # a private-key code path is ever added. See `.cargo/audit.toml`
+          # for the identical ignore applied to local runs.
+          ignore: RUSTSEC-2023-0071

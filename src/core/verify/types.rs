@@ -309,6 +309,20 @@ pub struct VerifyOptions {
 
     /// Require at least this many valid anchors
     pub min_valid_anchors: usize,
+
+    /// Trust material for RFC 3161 anchor chain verification.
+    ///
+    /// Per the trust model, this crate never derives a trust anchor from
+    /// certificates that arrived inside the token itself -- `None` (the
+    /// default) means every RFC 3161 anchor can, at best, reach
+    /// [`TerminalAnchor::Assumed`](super::anchors::rfc3161::TerminalAnchor::Assumed),
+    /// never `Trusted`, and therefore never contributes to
+    /// [`AnchorVerificationResult::is_valid`]. Set this to a `TrustStore`
+    /// obtained through an external, trusted channel (never by promoting a
+    /// certificate found in the receipt itself) to allow RFC 3161 anchors
+    /// to be trusted.
+    #[cfg(feature = "rfc3161-verify")]
+    pub rfc3161_trust_store: Option<super::anchors::rfc3161::TrustStore>,
 }
 
 impl std::fmt::Display for VerificationError {

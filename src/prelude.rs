@@ -61,6 +61,14 @@ pub use crate::core::verify::{
     VerifyOptions,
 };
 
+// RFC 3161 timestamp token verification (feature-gated): the caller-facing
+// TrustStore + facts API. Without a TrustStore, the best a token can reach
+// is `TerminalAnchor::Assumed`, never `Trusted` -- see `Rfc3161AnchorFacts`.
+#[cfg(feature = "rfc3161-verify")]
+pub use crate::core::verify::anchors::rfc3161::verify_rfc3161_token;
+#[cfg(feature = "rfc3161-verify")]
+pub use crate::core::verify::{PathStatus, Rfc3161AnchorFacts, TerminalAnchor, TrustStore};
+
 // Checkpoint
 pub use crate::core::checkpoint::{Checkpoint, CheckpointVerifier};
 
