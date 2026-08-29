@@ -50,8 +50,24 @@ impl TrustStore {
     /// Add a full certificate as a trust anchor.
     ///
     /// The certificate need not be self-signed: a chain terminates
-    /// successfully as soon as it reaches a certificate equal to this one,
-    /// regardless of who issued it.
+    /// successfully on reaching a certificate equal to this one, regardless
+    /// of who issued it.
+    ///
+    /// # Where the anchor exemption stops
+    ///
+    /// For a certificate **above the signer**, the match is tested before
+    /// that certificate's own validity period, `BasicConstraints`,
+    /// `KeyUsage` and `ExtendedKeyUsage` -- RFC 5280 6.1 treats a trust
+    /// anchor as an externally supplied trusted *input*, not a link of the
+    /// path being validated. That is what keeps an expired long-lived root,
+    /// or a cross-signed "root" whose own issuer is absent, usable.
+    ///
+    /// Pinning the **signer certificate itself** is permitted but buys no
+    /// exemption: its validity at `genTime`, its critical extensions and its
+    /// `KeyUsage` are checked first, and a signer failing them is refuted
+    /// however it was named. A timestamp's whole claim is temporal, so
+    /// accepting a signer that had already expired at `genTime` because
+    /// someone pinned it would assert a fact nobody checked.
     #[must_use]
     pub fn with_anchor_certificate(mut self, cert: Certificate) -> Self {
         self.anchor_certificates.push(cert);
@@ -61,8 +77,9 @@ impl TrustStore {
     /// Pin a trust anchor by the SHA-256 hash of its `SubjectPublicKeyInfo`
     /// (DER-encoded).
     ///
-    /// A chain terminates successfully as soon as it reaches *any*
-    /// certificate whose SPKI hashes to this value.
+    /// A chain terminates successfully on reaching *any* certificate whose
+    /// SPKI hashes to this value -- with the same signer-certificate
+    /// exception described on [`Self::with_anchor_certificate`].
     #[must_use]
     pub fn with_anchor_spki_pin(mut self, spki_sha256: Sha256Digest) -> Self {
         self.anchor_spki_pins.push(spki_sha256);
@@ -74,8 +91,12 @@ impl TrustStore {
     ///
     /// This does *not* make the certificate a trust anchor by itself: chain
     /// construction may walk through it, but the chain must still reach an
-    /// anchor (or a self-signed certificate, yielding `Assumed`) to
-    /// terminate.
+    /// anchor to terminate -- or a **name-self-issued** certificate (equal
+    /// issuer and subject DNs, RFC 5280 3.2), which yields
+    /// [`super::TerminalAnchor::Assumed`] and never counts as success. Note
+    /// that self-issued is not self-signed: a certificate with equal DNs
+    /// whose self-signature is checked and *fails* is not a terminus at all,
+    /// it is a refuted path.
     #[must_use]
     pub fn with_intermediate_certificate(mut self, cert: Certificate) -> Self {
         self.intermediate_certificates.push(cert);

@@ -215,6 +215,7 @@ fn test_verification_result_has_valid_anchor() {
         anchor_type: "rfc3161".to_string(),
         is_valid: true,
         timestamp: Some(123_456),
+        claimed_timestamp: Some(123_456),
         error: None,
     });
 
@@ -322,6 +323,7 @@ fn test_anchor_verification_result_valid() {
         anchor_type: "bitcoin".to_string(),
         is_valid: true,
         timestamp: Some(987_654),
+        claimed_timestamp: Some(987_654),
         error: None,
     };
 
@@ -337,11 +339,15 @@ fn test_anchor_verification_result_invalid() {
         anchor_type: "rfc3161".to_string(),
         is_valid: false,
         timestamp: None,
+        claimed_timestamp: Some(987_654),
         error: Some("signature verification failed".to_string()),
     };
 
     assert!(!result.is_valid);
     assert!(result.error.is_some());
+    // An invalid anchor establishes no time; the claim survives separately.
+    assert_eq!(result.timestamp, None);
+    assert_eq!(result.claimed_timestamp, Some(987_654));
 }
 
 #[test]
@@ -351,6 +357,7 @@ fn test_anchor_verification_result_clone() {
         anchor_type: "test".to_string(),
         is_valid: true,
         timestamp: Some(123),
+        claimed_timestamp: Some(123),
         error: None,
     };
 

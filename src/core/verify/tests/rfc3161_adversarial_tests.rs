@@ -108,15 +108,15 @@ fn forgery_regression_self_signed_chain_never_satisfies_aggregate_success() {
         .expect("forged token parses as valid CMS/TSTInfo");
 
     // The forgery is "good": every fact independent of trust holds.
-    assert!(facts.imprint_matches_root, "message imprint must match");
-    assert!(facts.cms_signature_valid, "CMS signature must verify: {:?}", facts.diagnostic);
+    assert!(facts.message_imprint.is_verified(), "message imprint must match");
+    assert!(facts.cms_signature.is_verified(), "CMS signature must verify: {:?}", facts.diagnostic);
     assert!(facts.chain_valid_at_gen_time, "chain must be structurally/temporally valid");
     assert!(facts.timestamping_eku_ok, "leaf EKU must be correct");
     assert_eq!(facts.path_status, PathStatus::Complete);
 
     // And yet: no trust was established, and nothing aggregates to success.
     let fingerprint = match facts.terminal_anchor {
-        Some(TerminalAnchor::Assumed { sha256_fingerprint }) => sha256_fingerprint,
+        Some(TerminalAnchor::Assumed { sha256_fingerprint, .. }) => sha256_fingerprint,
         other => panic!("expected TerminalAnchor::Assumed, got {other:?}"),
     };
     assert_ne!(fingerprint, [0u8; 32]);
@@ -185,7 +185,7 @@ fn unrecognized_critical_extension_is_rejected() {
     // The CMS signature itself is unaffected -- this is a chain-level
     // rejection, not a signature failure, and the two facts must stay
     // independent.
-    assert!(facts.cms_signature_valid);
+    assert!(facts.cms_signature.is_verified());
 }
 
 /// A token whose own certificate set contains *only* the leaf certificate.
@@ -276,7 +276,7 @@ fn known_but_unprocessed_critical_extension_is_rejected() {
     assert!(!facts.is_fully_valid());
     // Chain-level rejection only -- the CMS signature itself is unaffected,
     // and the two facts must stay independent of each other.
-    assert!(facts.cms_signature_valid);
+    assert!(facts.cms_signature.is_verified());
 }
 
 /// A `SignedData` with two `SignerInfo`s (instead of exactly one) must be
@@ -288,7 +288,7 @@ fn exactly_one_signer_is_required() {
     let facts = verify_rfc3161_token(&token_der, &expected_root(), None)
         .expect("still parses as valid CMS SignedData with two SignerInfos");
 
-    assert!(!facts.cms_signature_valid);
+    assert!(!facts.cms_signature.is_verified());
     assert!(!facts.is_fully_valid());
     let diagnostic = facts.diagnostic.expect("a diagnostic explaining the rejection");
     assert!(

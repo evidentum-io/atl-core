@@ -10,24 +10,43 @@
 //! rejected outright rather than falling back to signing the content
 //! directly.
 //!
-//! Verifies, in order:
+//! # Two halves, with different evidential weight
+//!
+//! Verification is split across two entry points, and the split is not
+//! organisational -- the halves mean different things when they fail.
+//!
+//! [`verify_signed_attributes`] checks what can be read from `SignerInfo`
+//! and the encapsulated content alone. Its outcome is the same whichever
+//! certificate a caller might try, so a failure here is a property of the
+//! **token** and refuting on it is sound:
 //!
 //! 1. `content-type` is present exactly once and matches the encapsulated
 //!    content type.
 //! 2. `message-digest` is present exactly once and matches the actual
 //!    digest of the encapsulated `TSTInfo` content (under
 //!    `SignerInfo.digestAlgorithm`).
-//! 3. The signer certificate is bound via the ESS signing-certificate
-//!    attribute: `id-aa-signingCertificate` (v1) and/or
-//!    `id-aa-signingCertificateV2` (v2), each present at most once. At
-//!    least one form MUST be present; every form that *is* present MUST
-//!    match -- if both v1 and v2 are present, both are checked, so a
-//!    matching v2 can never mask a mismatched v1.
+//! 3. An ESS signing-certificate attribute is *present* --
+//!    `id-aa-signingCertificate` (v1) and/or `id-aa-signingCertificateV2`
+//!    (v2) -- each at most once. At least one form MUST be present.
 //! 4. `CMS Algorithm Protection` (RFC 6211), if present (at most once),
 //!    agrees with `SignerInfo.digestAlgorithm`/`signatureAlgorithm`
 //!    (observed on GlobalSign tokens).
-//! 5. The cryptographic signature over the canonically re-encoded signed
-//!    attributes verifies against the signer certificate's public key.
+//!
+//! [`verify_signer_binding`] checks what depends on the candidate
+//! certificate. A failure here means only "this certificate is not the
+//! signer" -- never that the token is bad, because the genuine certificate
+//! may be absent from an unauthenticated certificate set (RFC 5652 5.1):
+//!
+//! 5. The ESS signing-certificate hash matches the actual signer
+//!    certificate. Every form that is present MUST match -- if both v1 and
+//!    v2 are present, both are checked, so a matching v2 can never mask a
+//!    mismatched v1.
+//! 6. The cryptographic signature over the canonically re-encoded signed
+//!    attributes verifies against that certificate's public key.
+//!
+//! Note that step 5's hash comparison therefore runs *after* step 4, in the
+//! other function. See [`classify`] for how each failure maps onto
+//! refuted-versus-indeterminate.
 
 use cms::signed_data::SignerInfo;
 use der::asn1::{ObjectIdentifier, OctetString};
@@ -37,6 +56,7 @@ use x509_cert::Certificate;
 
 use super::algorithms::{verify_signature, DigestAlg, SigVerifyError};
 use super::ess::{CmsAlgorithmProtection, SigningCertificate, SigningCertificateV2};
+use super::result::CmsSignature;
 
 /// Why CMS `SignerInfo` verification failed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -57,6 +77,12 @@ pub enum CmsVerifyError {
     /// actual signer certificate.
     #[error("ESS signing-certificate does not match the signer certificate")]
     EssBindingMismatch,
+    /// The ESS signing-certificate attribute names a hash algorithm this
+    /// crate does not implement, so the binding could not be evaluated
+    /// either way. Deliberately distinct from [`Self::EssBindingMismatch`]:
+    /// an unchecked binding is not a failed binding.
+    #[error("ESS signing-certificate uses an unsupported hash algorithm: {0}")]
+    EssBindingUnverifiable(String),
     /// A `CMS Algorithm Protection` attribute is present but disagrees with
     /// `SignerInfo.digestAlgorithm`/`signatureAlgorithm`.
     #[error("CMS Algorithm Protection attribute disagrees with SignerInfo algorithms")]
@@ -162,9 +188,8 @@ fn check_ess_binding(
         let sc: SigningCertificateV2 = single_value(attr)?;
         let first = sc.certs.first().ok_or(CmsVerifyError::EssBindingMismatch)?;
         let digest_alg = match &first.hash_algorithm {
-            Some(alg) => {
-                DigestAlg::from_oid(&alg.oid).map_err(|_| CmsVerifyError::EssBindingMismatch)?
-            }
+            Some(alg) => DigestAlg::from_oid(&alg.oid)
+                .map_err(|_| CmsVerifyError::EssBindingUnverifiable(alg.oid.to_string()))?,
             None => DigestAlg::Sha256, // RFC 5035 default
         };
         let expected = digest_alg.digest(signer_cert_der);
@@ -208,18 +233,72 @@ fn check_algorithm_protection(
     Ok(())
 }
 
-/// Verify a CMS `SignerInfo` against the encapsulated `TSTInfo` content and
-/// the signer's certificate.
+/// Split [`CmsVerifyError`] into "checked and false" and "could not check".
+///
+/// Only inabilities are [`CmsSignature::Indeterminate`]: algorithms this
+/// crate does not implement. Note that unlike the certificate-edge path in
+/// [`super::chain`], an unsupported **digest** algorithm is reachable here
+/// and belongs on the indeterminate side -- CMS names its digest separately
+/// (`SignerInfo.digestAlgorithm`), and without it the content digest cannot
+/// be computed at all, so nothing about the signature was ever examined.
+///
+/// Everything else -- a missing, duplicated, malformed or mismatched signed
+/// attribute, a failed ESS binding, an Algorithm Protection disagreement, or
+/// a signature that simply does not verify -- is a genuine refutation.
+pub(super) fn classify(err: &CmsVerifyError) -> CmsSignature {
+    match err {
+        CmsVerifyError::Signature(
+            SigVerifyError::UnsupportedSignatureAlgorithm(_)
+            | SigVerifyError::UnsupportedDigestAlgorithm(_),
+        )
+        | CmsVerifyError::EssBindingUnverifiable(_) => CmsSignature::Indeterminate,
+
+        CmsVerifyError::Signature(
+            SigVerifyError::BareRsaRequiresDigestHint
+            | SigVerifyError::DigestAlgorithmMismatch { .. }
+            | SigVerifyError::InvalidPublicKey(_)
+            | SigVerifyError::InvalidSignatureEncoding(_)
+            | SigVerifyError::SignatureInvalid
+            | SigVerifyError::KeyFamilyMismatch { .. },
+        )
+        | CmsVerifyError::ContentTypeMismatch
+        | CmsVerifyError::MessageDigestMismatch
+        | CmsVerifyError::MissingEssBinding
+        | CmsVerifyError::EssBindingMismatch
+        | CmsVerifyError::AlgorithmProtectionMismatch
+        | CmsVerifyError::MissingSignedAttributes
+        | CmsVerifyError::DuplicateAttribute(_)
+        | CmsVerifyError::MalformedAttribute(_) => CmsSignature::Refuted,
+    }
+}
+
+/// Verify everything about a `SignerInfo` that does **not** depend on which
+/// certificate is taken to be the signer, returning the signed attributes
+/// for the certificate-dependent half.
+///
+/// # Why the split exists
+///
+/// A CMS certificate set is not covered by the signature (RFC 5652 5.1), so
+/// no certificate drawn from it is known to be the signer's until its own
+/// verification succeeds. That makes "every candidate failed" unable to
+/// establish anything about the *signature* -- the genuine certificate may
+/// simply have been removed.
+///
+/// The checks below are different: they read only `SignerInfo` and the
+/// encapsulated content. Their outcome is the same whichever certificate a
+/// caller might try, so a failure here **is** a property of the token
+/// itself, and refuting on it stays sound. Keeping them apart is what lets
+/// this crate still detect a tampered `message-digest` or a mismatched
+/// `content-type` while refusing to over-claim about the signature.
 ///
 /// `econtent_type` and `raw_content` are the `EncapsulatedContentInfo`'s
 /// `eContentType` and the raw bytes of its `eContent` OCTET STRING (i.e. the
 /// exact bytes the digest in `message-digest` is computed over).
-pub(super) fn verify_signer_info(
-    signer_info: &SignerInfo,
-    signer_cert: &Certificate,
+pub(super) fn verify_signed_attributes<'a>(
+    signer_info: &'a SignerInfo,
     econtent_type: ObjectIdentifier,
     raw_content: &[u8],
-) -> Result<(), CmsVerifyError> {
+) -> Result<&'a cms::signed_data::SignedAttributes, CmsVerifyError> {
     let digest_alg = DigestAlg::from_oid(&signer_info.digest_alg.oid)?;
     let content_digest = digest_alg.digest(raw_content);
 
@@ -246,10 +325,35 @@ pub(super) fn verify_signer_info(
         return Err(CmsVerifyError::MessageDigestMismatch);
     }
 
+    // An ESS signing-certificate attribute must be *present* and singular.
+    // Whether its hash matches is certificate-dependent and belongs to
+    // `verify_signer_binding`; whether one exists at all does not.
+    let v2 = find_attribute_at_most_once(attrs, ID_AA_SIGNING_CERTIFICATE_V2)?;
+    let v1 = find_attribute_at_most_once(attrs, ID_AA_SIGNING_CERTIFICATE)?;
+    if v1.is_none() && v2.is_none() {
+        return Err(CmsVerifyError::MissingEssBinding);
+    }
+
+    check_algorithm_protection(attrs, signer_info)?;
+
+    Ok(signed_attrs)
+}
+
+/// Verify the half that **does** depend on the candidate certificate: the
+/// ESS signing-certificate binding and the cryptographic signature.
+///
+/// A failure here means only "this certificate is not the signer". It never
+/// establishes that the token's signature is bad, because the genuine
+/// certificate may be absent from an unauthenticated certificate set -- see
+/// [`verify_signed_attributes`].
+pub(super) fn verify_signer_binding(
+    signer_info: &SignerInfo,
+    signed_attrs: &cms::signed_data::SignedAttributes,
+    signer_cert: &Certificate,
+) -> Result<(), CmsVerifyError> {
     let signer_cert_der =
         signer_cert.to_der().map_err(|e| CmsVerifyError::MalformedAttribute(e.to_string()))?;
-    check_ess_binding(attrs, &signer_cert_der)?;
-    check_algorithm_protection(attrs, signer_info)?;
+    check_ess_binding(signed_attrs.as_slice(), &signer_cert_der)?;
 
     // RFC 5652 5.4: signed attributes are re-encoded as an ordinary SET OF
     // for the purposes of digesting/signing, not with the [0] IMPLICIT tag
@@ -365,6 +469,87 @@ mod tests {
         let v1 = attr(ID_AA_SIGNING_CERTIFICATE, signing_certificate_v1(&correct_sha1));
 
         assert_eq!(check_ess_binding(&[v2, v1], FAKE_SIGNER_CERT_DER), Ok(()));
+    }
+
+    /// **The blocker regression.** An algorithm this crate does not
+    /// implement must classify as `Indeterminate`, never `Refuted`. Under
+    /// the old `is_ok()` collapse, a token from a TSA using P-521 or RSA-PSS
+    /// -- both explicitly unimplemented in `algorithms` -- was published as
+    /// "the signature is invalid", i.e. refuted evidence, on the strength of
+    /// a check that never ran.
+    #[test]
+    fn unsupported_algorithms_are_indeterminate_not_refuted() {
+        for err in [
+            CmsVerifyError::Signature(SigVerifyError::UnsupportedSignatureAlgorithm(
+                "1.2.840.113549.1.1.10".to_string(), // RSASSA-PSS
+            )),
+            CmsVerifyError::Signature(SigVerifyError::UnsupportedDigestAlgorithm(
+                "2.16.840.1.101.3.4.2.4".to_string(), // SHA-224
+            )),
+            CmsVerifyError::Signature(SigVerifyError::UnsupportedSignatureAlgorithm(
+                "unsupported EC curve 1.3.132.0.35".to_string(), // P-521
+            )),
+            CmsVerifyError::EssBindingUnverifiable("1.3.14.3.2.26".to_string()),
+        ] {
+            assert_eq!(
+                classify(&err),
+                CmsSignature::Indeterminate,
+                "must not be reported as a refutation: {err}"
+            );
+        }
+    }
+
+    /// Everything that *was* checked and came out false stays a refutation
+    /// -- the fix must not soften real failures into "cannot tell".
+    #[test]
+    fn checked_failures_stay_refutations() {
+        for err in [
+            CmsVerifyError::Signature(SigVerifyError::SignatureInvalid),
+            CmsVerifyError::Signature(SigVerifyError::InvalidPublicKey("bad".to_string())),
+            CmsVerifyError::Signature(SigVerifyError::InvalidSignatureEncoding("bad".to_string())),
+            CmsVerifyError::Signature(SigVerifyError::KeyFamilyMismatch {
+                claimed_family: "ECDSA",
+                actual_family: "RSA",
+            }),
+            CmsVerifyError::Signature(SigVerifyError::BareRsaRequiresDigestHint),
+            CmsVerifyError::ContentTypeMismatch,
+            CmsVerifyError::MessageDigestMismatch,
+            CmsVerifyError::MissingEssBinding,
+            CmsVerifyError::EssBindingMismatch,
+            CmsVerifyError::AlgorithmProtectionMismatch,
+            CmsVerifyError::MissingSignedAttributes,
+            CmsVerifyError::DuplicateAttribute("1.2.3".to_string()),
+            CmsVerifyError::MalformedAttribute("1.2.3".to_string()),
+        ] {
+            assert_eq!(classify(&err), CmsSignature::Refuted, "must stay a refutation: {err}");
+        }
+    }
+
+    /// An ESS binding whose hash algorithm is unimplemented must report
+    /// "could not check", not "the binding is wrong". SHA-1 in an
+    /// `ESSCertIDv2` is the realistic case.
+    #[test]
+    fn unsupported_ess_hash_algorithm_is_unverifiable_not_a_mismatch() {
+        use super::super::ess::EssCertIdV2;
+        use spki::AlgorithmIdentifierOwned;
+
+        let sha1 = ObjectIdentifier::new_unwrap("1.3.14.3.2.26");
+        let sc = SigningCertificateV2 {
+            certs: vec![EssCertIdV2 {
+                hash_algorithm: Some(AlgorithmIdentifierOwned { oid: sha1, parameters: None }),
+                cert_hash: OctetString::new(vec![0u8; 20]).unwrap(),
+                issuer_serial: None,
+            }],
+            policies: None,
+        };
+        let attrs = [attr(ID_AA_SIGNING_CERTIFICATE_V2, sc)];
+
+        let err = check_ess_binding(&attrs, FAKE_SIGNER_CERT_DER).expect_err("must not verify");
+        assert!(
+            matches!(err, CmsVerifyError::EssBindingUnverifiable(_)),
+            "an unimplemented hash must not masquerade as a binding mismatch: {err}"
+        );
+        assert_eq!(classify(&err), CmsSignature::Indeterminate);
     }
 
     #[test]

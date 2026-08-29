@@ -242,7 +242,8 @@ fn verify_rfc3161_anchor(
         return AnchorVerificationResult {
             anchor_type: "rfc3161".to_string(),
             is_valid: false,
-            timestamp: parse_iso8601_to_nanos(timestamp),
+            timestamp: None,
+            claimed_timestamp: parse_iso8601_to_nanos(timestamp),
             error: Some(format!("RFC 3161 anchor target must be 'data_tree_root', got '{target}'")),
         };
     }
@@ -257,7 +258,8 @@ fn verify_rfc3161_anchor(
             return AnchorVerificationResult {
                 anchor_type: "rfc3161".to_string(),
                 is_valid: false,
-                timestamp: parse_iso8601_to_nanos(timestamp),
+                timestamp: None,
+                claimed_timestamp: parse_iso8601_to_nanos(timestamp),
                 error: Some(format!("invalid target_hash format: {e}")),
             };
         }
@@ -268,7 +270,8 @@ fn verify_rfc3161_anchor(
         return AnchorVerificationResult {
             anchor_type: "rfc3161".to_string(),
             is_valid: false,
-            timestamp: parse_iso8601_to_nanos(timestamp),
+            timestamp: None,
+            claimed_timestamp: parse_iso8601_to_nanos(timestamp),
             error: Some(format!(
                 "target_hash mismatch: anchor has {target_hash}, expected {}",
                 format_hash(expected_root)
@@ -329,7 +332,10 @@ pub fn verify_rfc3161_anchor_impl(
     AnchorVerificationResult {
         anchor_type: "rfc3161".to_string(),
         is_valid: false,
-        timestamp: parse_iso8601_to_nanos(timestamp),
+        // The feature is compiled out, so nothing was verified and nothing
+        // is established -- least of all a time.
+        timestamp: None,
+        claimed_timestamp: parse_iso8601_to_nanos(timestamp),
         error: Some("RFC 3161 verification requires 'rfc3161-verify' feature".to_string()),
     }
 }
@@ -358,7 +364,8 @@ fn verify_bitcoin_ots_anchor(
         return AnchorVerificationResult {
             anchor_type: "bitcoin_ots".to_string(),
             is_valid: false,
-            timestamp: parse_iso8601_to_nanos(timestamp),
+            timestamp: None,
+            claimed_timestamp: parse_iso8601_to_nanos(timestamp),
             error: Some(format!("Bitcoin OTS anchor target must be 'super_root', got '{target}'")),
         };
     }
@@ -373,7 +380,8 @@ fn verify_bitcoin_ots_anchor(
             return AnchorVerificationResult {
                 anchor_type: "bitcoin_ots".to_string(),
                 is_valid: false,
-                timestamp: parse_iso8601_to_nanos(timestamp),
+                timestamp: None,
+                claimed_timestamp: parse_iso8601_to_nanos(timestamp),
                 error: Some(format!("invalid target_hash format: {e}")),
             };
         }
@@ -384,7 +392,8 @@ fn verify_bitcoin_ots_anchor(
         return AnchorVerificationResult {
             anchor_type: "bitcoin_ots".to_string(),
             is_valid: false,
-            timestamp: parse_iso8601_to_nanos(timestamp),
+            timestamp: None,
+            claimed_timestamp: parse_iso8601_to_nanos(timestamp),
             error: Some(format!(
                 "target_hash mismatch: anchor has {target_hash}, expected {}",
                 format_hash(expected_root)
@@ -409,13 +418,18 @@ pub fn verify_bitcoin_ots_anchor_impl(
         Ok(_result) => AnchorVerificationResult {
             anchor_type: "bitcoin_ots".to_string(),
             is_valid: true,
-            timestamp: None, // Core doesn't know block time
+            // This crate performs no I/O, so it never learns the confirming
+            // block's time -- and the receipt's own field is the anchor's
+            // claim, not the block's. Establishing it needs the network.
+            timestamp: None,
+            claimed_timestamp: super::parse_iso8601_to_nanos(timestamp),
             error: None,
         },
         Err(e) => AnchorVerificationResult {
             anchor_type: "bitcoin_ots".to_string(),
             is_valid: false,
-            timestamp: super::parse_iso8601_to_nanos(timestamp),
+            timestamp: None,
+            claimed_timestamp: super::parse_iso8601_to_nanos(timestamp),
             error: Some(e.to_string()),
         },
     }
@@ -433,7 +447,10 @@ pub fn verify_bitcoin_ots_anchor_impl(
     AnchorVerificationResult {
         anchor_type: "bitcoin_ots".to_string(),
         is_valid: false,
-        timestamp: parse_iso8601_to_nanos(timestamp),
+        // The feature is compiled out, so nothing was verified and nothing
+        // is established -- least of all a time.
+        timestamp: None,
+        claimed_timestamp: parse_iso8601_to_nanos(timestamp),
         error: Some("Bitcoin OTS verification requires 'bitcoin-ots' feature".to_string()),
     }
 }

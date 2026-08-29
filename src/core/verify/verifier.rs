@@ -594,6 +594,7 @@ mod compute_validity_tests {
             anchor_type: "rfc3161".to_string(),
             is_valid: true,
             timestamp: Some(1),
+            claimed_timestamp: Some(1),
             error: None,
         }
     }
@@ -602,7 +603,10 @@ mod compute_validity_tests {
         AnchorVerificationResult {
             anchor_type: "rfc3161".to_string(),
             is_valid: false,
-            timestamp: Some(1),
+            // An invalid anchor establishes nothing, so it may only carry a
+            // claim.
+            timestamp: None,
+            claimed_timestamp: Some(1),
             error: Some("failed".to_string()),
         }
     }

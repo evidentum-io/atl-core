@@ -188,8 +188,28 @@ pub struct AnchorVerificationResult {
     /// Verification passed
     pub is_valid: bool,
 
-    /// Timestamp from anchor (if available)
+    /// The time this anchor **establishes**, in nanoseconds since the Unix
+    /// epoch — `Some` only when [`Self::is_valid`] is `true`.
+    ///
+    /// A timestamp anchor exists to answer "when did this exist", so handing
+    /// that number over unqualified for an anchor that did not verify is the
+    /// single most misleading thing this type could do. It is therefore
+    /// withheld rather than annotated: a consumer that reads it gets either
+    /// an established time or nothing, and can never mistake the token's
+    /// unverified claim for a verified fact.
+    ///
+    /// The claim itself is not discarded — see [`Self::claimed_timestamp`].
     pub timestamp: Option<u64>,
+
+    /// The time the anchor **asserts**, in nanoseconds since the Unix epoch,
+    /// regardless of whether anything about it was verified.
+    ///
+    /// Populated from the token's own `genTime` (or, failing that, the
+    /// receipt's `timestamp` field) even when verification failed outright.
+    /// This is attacker-controlled input until [`Self::is_valid`] holds:
+    /// useful for diagnostics and for saying *what was claimed*, never
+    /// admissible as when something existed.
+    pub claimed_timestamp: Option<u64>,
 
     /// Error message if invalid
     pub error: Option<String>,
