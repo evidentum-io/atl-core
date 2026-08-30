@@ -191,14 +191,17 @@ fn corpus_all_16_tokens_pass_with_trust_store() {
             .unwrap_or_else(|e| panic!("{} ({}): parse failed: {e}", entry.receipt_id, entry.tsa));
 
         assert!(
-            facts.imprint_matches_root,
+            facts.message_imprint.is_verified(),
             "{} ({}): imprint mismatch",
-            entry.receipt_id, entry.tsa
+            entry.receipt_id,
+            entry.tsa
         );
         assert!(
-            facts.cms_signature_valid,
+            facts.cms_signature.is_verified(),
             "{} ({}): CMS signature invalid: {:?}",
-            entry.receipt_id, entry.tsa, facts.diagnostic
+            entry.receipt_id,
+            entry.tsa,
+            facts.diagnostic
         );
         assert!(
             facts.chain_valid_at_gen_time,
@@ -265,14 +268,16 @@ fn corpus_all_16_tokens_never_trusted_without_store() {
         // The math itself (signature, chain crypto, EKU) is independent of
         // trust and must still hold.
         assert!(
-            facts.imprint_matches_root,
+            facts.message_imprint.is_verified(),
             "{} ({}): imprint mismatch",
-            entry.receipt_id, entry.tsa
+            entry.receipt_id,
+            entry.tsa
         );
         assert!(
-            facts.cms_signature_valid,
+            facts.cms_signature.is_verified(),
             "{} ({}): CMS signature invalid",
-            entry.receipt_id, entry.tsa
+            entry.receipt_id,
+            entry.tsa
         );
         assert!(
             facts.timestamping_eku_ok,

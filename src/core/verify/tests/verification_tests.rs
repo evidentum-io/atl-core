@@ -271,6 +271,7 @@ fn test_verification_result_with_anchors() {
         anchor_type: "rfc3161".to_string(),
         is_valid: true,
         timestamp: Some(123_456),
+        claimed_timestamp: Some(123_456),
         error: None,
     });
 

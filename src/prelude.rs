@@ -67,7 +67,10 @@ pub use crate::core::verify::{
 #[cfg(feature = "rfc3161-verify")]
 pub use crate::core::verify::anchors::rfc3161::verify_rfc3161_token;
 #[cfg(feature = "rfc3161-verify")]
-pub use crate::core::verify::{PathStatus, Rfc3161AnchorFacts, TerminalAnchor, TrustStore};
+pub use crate::core::verify::{
+    CmsSignature, MessageImprint, PathStatus, Rfc3161AnchorFacts, SelfSignature, TerminalAnchor,
+    TimestampingEku, TrustStore,
+};
 
 // Checkpoint
 pub use crate::core::checkpoint::{Checkpoint, CheckpointVerifier};

@@ -80,7 +80,15 @@ fn test_verify_rfc3161_anchor_integration() {
         !result.is_valid,
         "without a TrustStore, is_valid must be false even for a cryptographically sound token"
     );
-    assert!(result.timestamp.is_some(), "Should have timestamp (from genTime)");
+    assert!(
+        result.timestamp.is_none(),
+        "an anchor that established no trust must establish no time either"
+    );
+    assert!(
+        result.claimed_timestamp.is_some(),
+        "the token's claimed genTime is still reported, under a name that cannot be mistaken \
+         for an established fact"
+    );
     assert!(result.error.is_some(), "Should explain why aggregate success was not reached");
     let error = result.error.unwrap();
     assert!(
@@ -104,8 +112,8 @@ fn test_verify_rfc3161_token_real_freetsa_without_trust_store_is_assumed() {
     let token = format!("base64:{FREETSA_TOKEN}");
     let facts = verify_rfc3161_token(&token, &FREETSA_HASH, None).expect("token parses");
 
-    assert!(facts.imprint_matches_root);
-    assert!(facts.cms_signature_valid, "{:?}", facts.diagnostic);
+    assert!(facts.message_imprint.is_verified());
+    assert!(facts.cms_signature.is_verified(), "{:?}", facts.diagnostic);
     assert!(facts.chain_valid_at_gen_time);
     assert!(facts.timestamping_eku_ok);
     assert_eq!(facts.path_status, PathStatus::Complete);

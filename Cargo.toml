@@ -1,6 +1,6 @@
 [package]
 name = "atl-core"
-version = "0.25.0"
+version = "0.26.0"
 edition = "2021"
 rust-version = "1.92.0"
 authors = ["Dmitrii Zatona <dmitrii@zatona.dev>"]
