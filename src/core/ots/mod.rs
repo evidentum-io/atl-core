@@ -36,7 +36,10 @@ mod timestamp;
 pub use attestation::{Attestation, BITCOIN_TAG, PENDING_TAG, TAG_SIZE};
 pub use builder::TimestampBuilder;
 pub use error::{OtsError, MAGIC, MAX_OP_LENGTH, MAX_URI_LEN, RECURSION_LIMIT, VERSION};
-pub use extract::{extract_bitcoin_attestations, BitcoinAttestation};
+pub use extract::{
+    attestation_for_claimed_height, attested_block_heights, extract_bitcoin_attestations,
+    BitcoinAttestation,
+};
 pub use op::*;
 pub use ser::{Deserializer, DetachedTimestampFile, DigestType, Serializer};
 pub use timestamp::{Step, StepData, Timestamp};

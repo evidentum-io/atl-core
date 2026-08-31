@@ -447,3 +447,122 @@ fn prop_consistency_same_size_different_root_fails() {
         );
     });
 }
+
+// ========== Timestamp parsing: total on every `&str` ==========
+//
+// `parse_iso8601_to_nanos` is public and is fed `bitcoin_block_time` and an
+// anchor's `timestamp` straight out of a receipt -- unvalidated `String`s
+// from a document this crate does not control. It must therefore answer for
+// every possible input, and "answer" excludes aborting the process.
+//
+// It did not. `split_at(len - 6)` indexed a `&str` at a byte position
+// computed from its length, and `str` slicing panics when that position is
+// not a UTF-8 character boundary: a `bitcoin_block_time` of "💥abc" killed
+// `atl-cli` with SIGABRT instead of returning a verdict.
+//
+// The fix was structural -- the parser indexes byte slices, where a bad
+// index is a `None` and character boundaries do not exist -- so the test for
+// it is stated as a property over arbitrary input rather than as a list of
+// the shapes that happened to break it. A list only ever covers what someone
+// thought of.
+
+/// **The property: no `&str` whatsoever makes this function panic.**
+///
+/// `\PC*` generates arbitrary Unicode strings, so multi-byte characters land
+/// at arbitrary byte positions -- including the positions the parser computes
+/// from lengths.
+#[test]
+fn prop_timestamp_parsing_never_panics() {
+    proptest!(|(input in "\\PC*")| {
+        let _ = atl_core::core::verify::parse_iso8601_to_nanos(&input);
+    });
+}
+
+/// The same property where it actually bites: a *valid* timestamp with one
+/// arbitrary character inserted at an arbitrary position. Random strings
+/// rarely reach the parser's later stages; these reach every one of them,
+/// with a multi-byte character sitting exactly where an index is computed.
+#[test]
+fn prop_a_character_inserted_anywhere_in_a_valid_timestamp_never_panics() {
+    proptest!(|(ch in any::<char>(), at in 0usize..26)| {
+        for valid in [
+            "2026-01-19T07:01:20+00:00",
+            "2026-01-19T07:01:20Z",
+            "2026-01-19T07:01:20.123456789Z",
+        ] {
+            let mut mutated = String::from(valid);
+            // Every byte of these is ASCII, so any index within them is a
+            // character boundary and the insert itself cannot panic.
+            mutated.insert(at.min(valid.len()), ch);
+            let _ = atl_core::core::verify::parse_iso8601_to_nanos(&mutated);
+        }
+    });
+}
+
+/// Truncation, not insertion: every prefix and every suffix of a valid
+/// timestamp, so the length-derived indices are exercised against every
+/// possible length rather than only the ones a generator happens to pick.
+#[test]
+fn prop_every_prefix_and_suffix_of_a_valid_timestamp_never_panics() {
+    for valid in ["2026-01-19T07:01:20+00:00", "2026-01-19T07:01:20.000000001Z"] {
+        for cut in 0..=valid.len() {
+            let (head, tail) = valid.split_at(cut);
+            assert!(
+                atl_core::core::verify::parse_iso8601_to_nanos(head).is_none()
+                    || cut == valid.len()
+            );
+            let _ = atl_core::core::verify::parse_iso8601_to_nanos(tail);
+        }
+    }
+}
+
+/// Regression corpus. The property tests above are the real guarantee; these
+/// are the specific shapes worth naming, so a failure says which one broke.
+///
+/// A truncated UTF-8 byte sequence is deliberately absent: it cannot reach a
+/// `&str` at all, because the type guarantees valid UTF-8. What *can* reach
+/// the parser is a whole multi-byte character at a byte position the parser
+/// computes, which is what the lengths below are chosen to produce.
+#[test]
+fn deliberately_awkward_timestamps_return_none_without_panicking() {
+    let cases = [
+        // The exact input that aborted the process.
+        "💥abc",
+        // A multi-byte character straddling the offset split (len - 6).
+        "2026-01-19T07:01:2💥+00:00",
+        "2026-01-19T07:01:20+00:0💥",
+        "2026-01-19T07:01:20💥0:00",
+        // Lengths either side of the fixed widths the parser once assumed.
+        "💥",
+        "💥💥",
+        "💥💥💥💥💥",
+        "1234567890123456789",
+        "12345678901234567890",
+        "123456789012345678901",
+        "💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥",
+        // Empty and whitespace.
+        "",
+        " ",
+        "\t\n",
+        // Right shape, wrong bytes.
+        "2026-01-19T07:01:20+ラ:00",
+        "2026-01-19T07:01:20.💥Z",
+        "2026-01-19Tラ7:01:20Z",
+        "ラ026-01-19T07:01:20Z",
+        // Controls and a zero-width marker, which are valid UTF-8 and can
+        // arrive in a JSON string.
+        "\u{0}2026-01-19T07:01:20Z",
+        "\u{feff}2026-01-19T07:01:20Z",
+        // Digits that would overflow a naive accumulator.
+        "99999999-01-19T07:01:20Z",
+        "2026-01-19T07:01:20.99999999999999999999Z",
+    ];
+
+    for case in cases {
+        assert_eq!(
+            atl_core::core::verify::parse_iso8601_to_nanos(case),
+            None,
+            "{case:?} must be refused, not accepted -- and above all not panic"
+        );
+    }
+}
