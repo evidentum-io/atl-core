@@ -196,8 +196,13 @@ impl ReceiptVerifier {
             errors: vec![],
         };
 
-        // STEP 0: Validate receipt version (only 2.0.0 supported)
-        if receipt.spec_version != "2.0.0" {
+        // STEP 0: Validate receipt version.
+        //
+        // Delegated to `is_supported_spec_version` rather than compared
+        // here: this gate and the one in `Receipt::from_json` are two doors
+        // into the same building, and an inlined literal in each is how they
+        // came to disagree with a caller's own gate.
+        if !crate::core::receipt::is_supported_spec_version(&receipt.spec_version) {
             result.errors.push(VerificationError::UnsupportedVersion(receipt.spec_version.clone()));
             return result;
         }

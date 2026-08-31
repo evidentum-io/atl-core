@@ -308,6 +308,74 @@ fn validate_start_digest(actual: &[u8], expected: &[u8; 32]) -> Result<(), OtsEr
     Ok(())
 }
 
+/// The attestation an anchor's claimed block height names, if the proof
+/// carries one.
+///
+/// **The single definition of "the receipt's height matches its proof"**
+/// (ATL v2.0 §5.5.2 step 5). Every verifier — this crate's own anchor check
+/// and any consumer such as `atl-cli` — must ask this rather than reimplement
+/// the rule, because two independent copies of a rule are two rules.
+///
+/// # Why "any attestation", not "the earliest"
+///
+/// An earlier version of this check compared the claimed height against
+/// `attestations.iter().map(|a| a.block_height).min()`. That rule appears
+/// nowhere in the specification: §5.5.2 says "match the proof", and the word
+/// *attestation* does not occur in the document at all. A proof may carry
+/// several Bitcoin attestations, and under the `min()` rule a receipt naming
+/// a height genuinely present in its own proof — just not the lowest one —
+/// was declared refuted by a criterion the protocol never set. Accusing
+/// evidence on the strength of an invented rule is precisely the failure
+/// this implementation exists to avoid.
+///
+/// So the claim holds if it matches **any** attestation, and only a claim
+/// matching **none** is refuted. Where several attestations share a height,
+/// the first in proof order is returned; they are interchangeable for this
+/// purpose, since the height is what was compared.
+///
+/// # Examples
+///
+/// ```
+/// use atl_core::ots::{attestation_for_claimed_height, BitcoinAttestation};
+///
+/// let att = |h| BitcoinAttestation { block_height: h, merkle_path: vec![], timestamp: None };
+/// let proof = [att(932_897), att(932_910)];
+///
+/// // Any attestation in the proof satisfies the claim.
+/// assert_eq!(
+///     attestation_for_claimed_height(&proof, 932_910).map(|a| a.block_height),
+///     Some(932_910),
+/// );
+/// // Only a height the proof does not attest to at all is a mismatch.
+/// assert!(attestation_for_claimed_height(&proof, 900_000).is_none());
+/// ```
+#[must_use]
+pub fn attestation_for_claimed_height(
+    attestations: &[BitcoinAttestation],
+    claimed_block_height: u64,
+) -> Option<&BitcoinAttestation> {
+    attestations.iter().find(|a| a.block_height == claimed_block_height)
+}
+
+/// Every block height a proof's Bitcoin attestations name, in proof order.
+///
+/// The evidence for a refusal from [`attestation_for_claimed_height`]: a
+/// reader told that a claimed height matches nothing must be able to see
+/// what the proof does attest to, or the finding cannot be checked.
+///
+/// # Examples
+///
+/// ```
+/// use atl_core::ots::{attested_block_heights, BitcoinAttestation};
+///
+/// let att = |h| BitcoinAttestation { block_height: h, merkle_path: vec![], timestamp: None };
+/// assert_eq!(attested_block_heights(&[att(932_897), att(932_910)]), vec![932_897, 932_910]);
+/// ```
+#[must_use]
+pub fn attested_block_heights(attestations: &[BitcoinAttestation]) -> Vec<u64> {
+    attestations.iter().map(|a| a.block_height).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

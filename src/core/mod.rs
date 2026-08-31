@@ -57,8 +57,9 @@ pub use merkle::{
 
 // Receipt types and formatting
 pub use receipt::{
-    format_hash, format_signature, parse_base64_signature, Receipt, ReceiptAnchor,
-    ReceiptConsistencyProof, ReceiptEntry, ReceiptProof, SuperProof, RECEIPT_SPEC_VERSION,
+    format_hash, format_signature, is_supported_spec_version, parse_base64_signature, Receipt,
+    ReceiptAnchor, ReceiptConsistencyProof, ReceiptEntry, ReceiptProof, SuperProof,
+    RECEIPT_SPEC_VERSION,
 };
 
 // Receipt verification

@@ -72,6 +72,45 @@ use uuid::Uuid;
 /// - Mandatory `target` and `target_hash` in anchors
 pub const RECEIPT_SPEC_VERSION: &str = "2.0.0";
 
+/// Whether this build implements the receipt revision `version` names.
+///
+/// **The single place the question is answered.** Every gate — this crate's
+/// [`Receipt::from_json`], its verifier's step 0, and any consumer such as
+/// `atl-cli` — must call this rather than compare a literal of its own, so
+/// that two parts of one system cannot disagree about what they accept. They
+/// did: a caller admitting every `2.x` while the verifier admitted only
+/// `2.0.0` meant a `2.0.1` receipt got past the door and was then reported
+/// as a defective receipt rather than an unimplemented revision.
+///
+/// # Exact match, and why
+///
+/// ATL v2.0 §4.2 defines `spec_version` as "REQUIRED: Protocol version.
+/// Currently \"2.0.0\"" and says nothing further: it defines no
+/// compatibility contract, no rule that a verifier must accept later
+/// revisions of the same major version, and no rule about fields it does not
+/// recognise. With no such contract written down, accepting `2.0.1` would
+/// mean asserting a verification performed under rules this build has never
+/// seen. So the accepted set is exactly what this build implements, and
+/// anything else is an *inability* to verify — never a finding about the
+/// receipt.
+///
+/// Widening this is a specification change first: §4.2 has to state the
+/// compatibility rule before an implementation can rely on one.
+///
+/// # Examples
+///
+/// ```
+/// use atl_core::{is_supported_spec_version, RECEIPT_SPEC_VERSION};
+///
+/// assert!(is_supported_spec_version(RECEIPT_SPEC_VERSION));
+/// assert!(!is_supported_spec_version("2.0.1"));
+/// assert!(!is_supported_spec_version("1.0.0"));
+/// ```
+#[must_use]
+pub fn is_supported_spec_version(version: &str) -> bool {
+    version == RECEIPT_SPEC_VERSION
+}
+
 /// Anchor target: Data Tree Root (for RFC 3161)
 pub const ANCHOR_TARGET_DATA_TREE_ROOT: &str = "data_tree_root";
 
@@ -428,8 +467,10 @@ impl Receipt {
         let receipt: Self =
             serde_json::from_str(json).map_err(|e| AtlError::InvalidReceipt(e.to_string()))?;
 
-        // Only accept v2.0.0 receipts
-        if receipt.spec_version != "2.0.0" {
+        // Only the revision this build implements -- see
+        // `is_supported_spec_version` for why the match is exact, and for
+        // why this must not be an inlined comparison of its own.
+        if !is_supported_spec_version(&receipt.spec_version) {
             return Err(AtlError::UnsupportedReceiptVersion(receipt.spec_version));
         }
 
@@ -1488,6 +1529,17 @@ mod receipt_v2_tests {
 
         let result = Receipt::from_json(json);
         assert!(matches!(result, Err(AtlError::UnsupportedReceiptVersion(_))));
+
+        // The same door, for a later revision of the same major version --
+        // the case that used to get past a caller's `2.x` gate and then be
+        // reported as a defective receipt rather than an unimplemented
+        // revision. ATL v2.0 §4.2 defines no compatibility rule to lean on.
+        let later_minor =
+            json.replace("\"spec_version\": \"3.0.0\"", "\"spec_version\": \"2.0.1\"");
+        assert!(matches!(
+            Receipt::from_json(&later_minor),
+            Err(AtlError::UnsupportedReceiptVersion(v)) if v == "2.0.1"
+        ));
     }
 
     #[test]

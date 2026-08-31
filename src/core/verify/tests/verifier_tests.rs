@@ -346,6 +346,27 @@ mod receipt_super_proof_integration_tests {
             .any(|e| matches!(e, VerificationError::UnsupportedVersion(_))));
     }
 
+    /// A *later revision of the same major version* is refused here too, and
+    /// this is the case that matters: ATL v2.0 §4.2 states the current value
+    /// and defines no compatibility rule, so a verifier that waved `2.0.1`
+    /// through would be reporting a verification carried out under rules it
+    /// has never seen. Reaching this arm also proves the gate consults
+    /// `is_supported_spec_version` rather than a literal of its own.
+    #[test]
+    fn test_later_minor_revision_rejected() {
+        let mut receipt = make_v2_receipt_full();
+        receipt.spec_version = "2.0.1".to_string();
+
+        let verifier = ReceiptVerifier::new(make_test_verifier());
+        let result = verifier.verify(&receipt);
+
+        assert!(!result.is_valid);
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| matches!(e, VerificationError::UnsupportedVersion(v) if v == "2.0.1")));
+    }
+
     // === Receipt-Full Tests ===
 
     #[test]

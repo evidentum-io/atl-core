@@ -212,9 +212,21 @@ pub fn verify_anchor(
         ReceiptAnchor::Rfc3161 { target, target_hash, timestamp, token_der, .. } => {
             verify_rfc3161_anchor(target, target_hash, timestamp, token_der, context)
         }
-        ReceiptAnchor::BitcoinOts { target, target_hash, timestamp, ots_proof, .. } => {
-            verify_bitcoin_ots_anchor(target, target_hash, timestamp, ots_proof, context)
-        }
+        ReceiptAnchor::BitcoinOts {
+            target,
+            target_hash,
+            timestamp,
+            bitcoin_block_height,
+            ots_proof,
+            ..
+        } => verify_bitcoin_ots_anchor(
+            target,
+            target_hash,
+            timestamp,
+            *bitcoin_block_height,
+            ots_proof,
+            context,
+        ),
     }
 }
 
@@ -347,6 +359,23 @@ pub fn verify_rfc3161_anchor_impl(
 /// 2. Verify that `anchor.target_hash` equals `super_proof.super_root` (REQUIRED)
 /// 3. Decode `ots_proof` (`OpenTimestamps` binary format)
 /// 4. Verify the OTS proof chain from `target_hash` to the Bitcoin block
+/// 5. Verify that `bitcoin_block_height` and `bitcoin_block_time` match the
+///    proof
+///
+/// # Step 5 splits in two, and only one half belongs in this crate
+///
+/// The height is carried by the proof itself -- an `OpenTimestamps` Bitcoin
+/// attestation encodes it -- so `bitcoin_block_height` can be compared with
+/// what the proof says by pure computation, and is compared here. A receipt
+/// naming a height its own proof contradicts is **refuted**, not merely
+/// unconfirmed.
+///
+/// The block *time* is nowhere in the proof. Establishing it means obtaining
+/// the block header, which is I/O this crate does not perform, so the
+/// `bitcoin_block_time` half of step 5 cannot be carried out here and is
+/// deliberately not attempted: reporting a comparison that never ran is the
+/// one thing worse than not running it. A caller that does fetch headers
+/// (`atl-cli`) completes that half.
 ///
 /// NO FALLBACKS: Missing target or `target_hash` = ERROR.
 /// OTS anchors MUST target `"super_root"` (not `"data_tree_root"`).
@@ -354,6 +383,7 @@ fn verify_bitcoin_ots_anchor(
     target: &str,
     target_hash: &str,
     timestamp: &str,
+    claimed_block_height: u64,
     ots_proof: &str,
     context: &AnchorVerificationContext,
 ) -> AnchorVerificationResult {
@@ -401,8 +431,10 @@ fn verify_bitcoin_ots_anchor(
         };
     }
 
-    // 5. Proceed with cryptographic verification using expected_root
-    verify_bitcoin_ots_anchor_impl(timestamp, ots_proof, expected_root)
+    // 5. Proceed with cryptographic verification using expected_root, and
+    //    with the height the receipt claims for the proof to be checked
+    //    against.
+    verify_bitcoin_ots_anchor_impl(timestamp, ots_proof, expected_root, claimed_block_height)
 }
 
 /// Verify Bitcoin OTS anchor implementation (with feature flag)
@@ -411,20 +443,63 @@ pub fn verify_bitcoin_ots_anchor_impl(
     timestamp: &str,
     ots_proof: &str,
     expected_root: &[u8; 32],
+    claimed_block_height: u64,
 ) -> AnchorVerificationResult {
     use super::anchors::bitcoin_ots::verify_ots_anchor_impl;
 
     match verify_ots_anchor_impl(ots_proof, expected_root) {
-        Ok(_result) => AnchorVerificationResult {
-            anchor_type: "bitcoin_ots".to_string(),
-            is_valid: true,
-            // This crate performs no I/O, so it never learns the confirming
-            // block's time -- and the receipt's own field is the anchor's
-            // claim, not the block's. Establishing it needs the network.
-            timestamp: None,
-            claimed_timestamp: super::parse_iso8601_to_nanos(timestamp),
-            error: None,
-        },
+        Ok(result) => {
+            // ATL v2.0 §5.5.2 step 5, height half: the receipt states a
+            // block height for this anchor, and the proof attests to one or
+            // more. Comparing them needs no network, so an offline verifier
+            // that skips it publishes an unchecked assertion of the
+            // receipt's -- a receipt could name block 900000 while carrying
+            // a proof that attests to 932897, and nothing would notice.
+            //
+            // The rule -- the claim holds if it matches ANY attestation --
+            // lives in `attestation_for_claimed_height` and is not restated
+            // here. It was once an inline `min()`, a criterion the
+            // specification never sets, under which a receipt naming a
+            // height genuinely present in its own proof could be declared
+            // refuted.
+            let attested = crate::core::ots::attestation_for_claimed_height(
+                &result.attestations,
+                claimed_block_height,
+            );
+            if attested.is_some() {
+                return AnchorVerificationResult {
+                    anchor_type: "bitcoin_ots".to_string(),
+                    is_valid: true,
+                    // This crate performs no I/O, so it never learns the
+                    // confirming block's time -- and the receipt's own field
+                    // is the anchor's claim, not the block's. Establishing
+                    // it needs the network, and so does the
+                    // `bitcoin_block_time` half of step 5.
+                    timestamp: None,
+                    claimed_timestamp: super::parse_iso8601_to_nanos(timestamp),
+                    error: None,
+                };
+            }
+
+            let heights = crate::core::ots::attested_block_heights(&result.attestations)
+                .iter()
+                .map(u64::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
+            AnchorVerificationResult {
+                anchor_type: "bitcoin_ots".to_string(),
+                is_valid: false,
+                timestamp: None,
+                claimed_timestamp: super::parse_iso8601_to_nanos(timestamp),
+                // Every attested height is named, not just one: a reader
+                // told the claim matches nothing must be able to see what
+                // the proof does attest to, or the finding is unauditable.
+                error: Some(format!(
+                    "bitcoin_block_height mismatch: receipt claims {claimed_block_height}, but \
+                     its OTS proof attests to no such block (attested: [{heights}])"
+                )),
+            }
+        }
         Err(e) => AnchorVerificationResult {
             anchor_type: "bitcoin_ots".to_string(),
             is_valid: false,
@@ -441,6 +516,7 @@ pub fn verify_bitcoin_ots_anchor_impl(
     timestamp: &str,
     _ots_proof: &str,
     _expected_root: &[u8; 32],
+    _claimed_block_height: u64,
 ) -> AnchorVerificationResult {
     use super::parse_iso8601_to_nanos;
 
@@ -579,6 +655,7 @@ mod rfc3161_target_tests {
             "data_tree_root", // Wrong! Should be "super_root"
             &make_test_hash(0xbb),
             "2026-01-13T12:00:00Z",
+            0, // claimed block height: irrelevant to the target checks under test
             "base64:AAAA",
             &context,
         );
@@ -596,6 +673,7 @@ mod rfc3161_target_tests {
             "super_root",
             &make_test_hash(0xff), // Wrong hash!
             "2026-01-13T12:00:00Z",
+            0, // claimed block height: irrelevant to the target checks under test
             "base64:AAAA",
             &context,
         );
@@ -614,6 +692,7 @@ mod rfc3161_target_tests {
             "super_root",
             &make_test_hash(0xbb), // Matches context.super_root
             "2026-01-13T12:00:00Z",
+            0, // claimed block height: irrelevant to the target checks under test
             "base64:...",
             &context,
         );
@@ -634,6 +713,7 @@ mod rfc3161_target_tests {
             "invalid_target",
             &make_test_hash(0xbb),
             "2026-01-13T12:00:00Z",
+            0, // claimed block height: irrelevant to the target checks under test
             "base64:AAAA",
             &context,
         );
@@ -651,6 +731,7 @@ mod rfc3161_target_tests {
             "super_root",
             "invalid", // Bad format
             "2026-01-13T12:00:00Z",
+            0, // claimed block height: irrelevant to the target checks under test
             "base64:AAAA",
             &context,
         );
@@ -668,6 +749,7 @@ mod rfc3161_target_tests {
             "", // Empty!
             &make_test_hash(0xbb),
             "2026-01-13T12:00:00Z",
+            0, // claimed block height: irrelevant to the target checks under test
             "base64:AAAA",
             &context,
         );
@@ -684,6 +766,7 @@ mod rfc3161_target_tests {
             "super_root",
             "", // Empty!
             "2026-01-13T12:00:00Z",
+            0, // claimed block height: irrelevant to the target checks under test
             "base64:AAAA",
             &context,
         );
@@ -784,5 +867,133 @@ mod metadata_hash_tests {
         let result = reconstruct_leaf_hash(&payload_hash_str, &metadata_hash_str, &metadata2);
 
         assert!(matches!(result, Err(VerificationError::MetadataHashMismatch { .. })));
+    }
+}
+
+/// ATL v2.0 §5.5.2 step 5, height half: the receipt's `bitcoin_block_height`
+/// against the height the OTS proof itself attests to.
+///
+/// Exercised through [`verify_bitcoin_ots_anchor_impl`] with a real
+/// `OpenTimestamps` proof, because the comparison is only worth anything if
+/// the height really is recoverable from proof bytes with no network access
+/// — which is the entire reason this half of step 5 lives in this crate.
+#[cfg(all(test, feature = "bitcoin-ots"))]
+mod bitcoin_ots_claimed_height_tests {
+    use super::*;
+    use crate::core::ots::DetachedTimestampFile;
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
+
+    /// The fixture proof, its start digest, and the height it attests to.
+    fn fixture() -> (String, [u8; 32], u64) {
+        let bytes = std::fs::read("test_data/ots/large-test.ots").expect("fixture readable");
+        let file = DetachedTimestampFile::from_bytes(&bytes).expect("fixture parses");
+        let digest: [u8; 32] =
+            file.timestamp.start_digest.clone().try_into().expect("32-byte start digest");
+        let attested = super::super::anchors::bitcoin_ots::verify_ots_anchor_impl(
+            &STANDARD.encode(&bytes),
+            &digest,
+        )
+        .expect("fixture proof verifies")
+        .attestations
+        .iter()
+        .map(|a| a.block_height)
+        .min()
+        .expect("fixture carries a Bitcoin attestation");
+        (STANDARD.encode(&bytes), digest, attested)
+    }
+
+    /// The height the receipt states and the height its proof attests to
+    /// agree: nothing is refuted on this ground.
+    #[test]
+    fn a_matching_claimed_height_is_not_refuted() {
+        let (proof, digest, attested) = fixture();
+
+        let result =
+            verify_bitcoin_ots_anchor_impl("2026-01-13T12:00:00Z", &proof, &digest, attested);
+
+        assert!(result.is_valid, "{:?}", result.error);
+    }
+
+    /// **The defect this check exists for.** A receipt may state any height
+    /// it likes; the proof attests to one or more, and the claim must be one
+    /// of them. This comparison is pure computation, so a verifier that
+    /// skips it is republishing the receipt's own assertion as though it had
+    /// been checked.
+    #[test]
+    fn a_claimed_height_the_proof_contradicts_is_refuted() {
+        let (proof, digest, attested) = fixture();
+
+        let result =
+            verify_bitcoin_ots_anchor_impl("2026-01-13T12:00:00Z", &proof, &digest, attested + 1);
+
+        assert!(!result.is_valid);
+        let error = result.error.expect("a refutation must say what it refuted");
+        assert!(error.contains("bitcoin_block_height mismatch"), "{error}");
+        // The evidence for the refusal: what the proof does attest to.
+        assert!(error.contains(&attested.to_string()), "{error}");
+    }
+
+    /// **A claim matching any attestation holds.** The rule is "match the
+    /// proof" (§5.5.2 step 5), and a proof with several Bitcoin attestations
+    /// attests to every one of them. Comparing against the lowest -- which
+    /// this code once did, and which the specification nowhere asks for --
+    /// refutes a receipt that named a block genuinely present in its own
+    /// proof.
+    #[test]
+    fn any_attested_height_satisfies_the_claim() {
+        use crate::core::ots::{attestation_for_claimed_height, BitcoinAttestation};
+
+        let att = |h| BitcoinAttestation { block_height: h, merkle_path: vec![], timestamp: None };
+        let proof = [att(932_897), att(932_910), att(1_000_000)];
+
+        for claimed in [932_897, 932_910, 1_000_000] {
+            assert_eq!(
+                attestation_for_claimed_height(&proof, claimed).map(|a| a.block_height),
+                Some(claimed),
+                "a height the proof attests to must satisfy the claim"
+            );
+        }
+
+        // Only a height attested by none of them is a mismatch -- including
+        // one that merely sits between two attested heights.
+        assert!(attestation_for_claimed_height(&proof, 932_900).is_none());
+        assert!(attestation_for_claimed_height(&proof, 0).is_none());
+        // And an empty proof attests to nothing at all.
+        assert!(attestation_for_claimed_height(&[], 932_897).is_none());
+    }
+
+    /// No time is established here whatever the height comparison says: the
+    /// block time is not in the proof, and this crate performs no I/O.
+    #[test]
+    fn no_block_time_is_ever_established_offline() {
+        let (proof, digest, attested) = fixture();
+
+        let result =
+            verify_bitcoin_ots_anchor_impl("2026-01-13T12:00:00Z", &proof, &digest, attested);
+
+        assert_eq!(result.timestamp, None);
+    }
+}
+
+/// ATL v2.0 §4.2: which `spec_version` values this build admits.
+#[cfg(test)]
+mod spec_version_gate_tests {
+    use crate::core::receipt::{is_supported_spec_version, RECEIPT_SPEC_VERSION};
+
+    /// Every gate in this system must give the same answer, so there is one
+    /// predicate and it matches exactly. `2.0.1` is the case that mattered:
+    /// a caller admitting all of `2.x` while the verifier admitted only
+    /// `2.0.0` turned an unimplemented revision into a defective receipt.
+    #[test]
+    fn only_the_revision_this_build_implements_is_accepted() {
+        assert!(is_supported_spec_version(RECEIPT_SPEC_VERSION));
+        assert!(!is_supported_spec_version("2.0.1"));
+        assert!(!is_supported_spec_version("2.1.0"));
+        assert!(!is_supported_spec_version("2"));
+        assert!(!is_supported_spec_version("2."));
+        assert!(!is_supported_spec_version("1.0.0"));
+        assert!(!is_supported_spec_version("3.0.0"));
+        assert!(!is_supported_spec_version(""));
     }
 }

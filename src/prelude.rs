@@ -29,6 +29,7 @@ pub use crate::error::{AtlError, AtlResult};
 
 // Receipt types (v2.0)
 pub use crate::core::receipt::{
+    is_supported_spec_version,
     Receipt,
     ReceiptAnchor,
     ReceiptEntry,

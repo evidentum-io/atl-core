@@ -175,6 +175,9 @@ pub use core::receipt::{
     ANCHOR_TARGET_SUPER_ROOT,
     RECEIPT_SPEC_VERSION,
 };
+// The one predicate every version gate -- in this crate and in its
+// consumers -- must ask (ATL v2.0 §4.2).
+pub use core::receipt::is_supported_spec_version;
 
 // Verification types and functions (v2.0)
 pub use core::verify::{
