@@ -7,11 +7,48 @@ use atl_core::core::jcs::{canonicalize, canonicalize_and_hash};
 use atl_core::core::merkle::{
     compute_leaf_hash, compute_root, generate_inclusion_proof, verify_inclusion, Hash,
 };
-use atl_core::core::receipt::{format_hash, format_signature, Receipt, RECEIPT_SPEC_VERSION};
+use atl_core::core::receipt::{
+    format_hash, format_signature, Receipt, ReceiptAnchor, ReceiptBuilder, ReceiptEntry,
+    ReceiptProof, SourceTextCheck, SuperProof, RECEIPT_SPEC_VERSION,
+};
 use atl_core::AtlError;
 use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use serde_json::json;
 use uuid::Uuid;
+
+/// Rebuild a receipt with one part altered, using only the public API.
+///
+/// `Receipt` exposes no setters and no `&mut` accessors: every field that feeds
+/// verification is private behind a shared-reference accessor, so a receipt
+/// cannot be edited after it exists. A test that needs a tampered receipt
+/// therefore builds a new one from altered parts — the same thing any consumer
+/// must now do, which is why this integration test does it through the public
+/// surface rather than a privileged one.
+fn tamper(receipt: &Receipt, mutate: impl FnOnce(&mut ReceiptParts)) -> Receipt {
+    let mut parts = ReceiptParts {
+        spec_version: receipt.spec_version().to_string(),
+        entry: receipt.entry().clone(),
+        proof: receipt.proof().clone(),
+        super_proof: receipt.super_proof().cloned(),
+        anchors: receipt.anchors().to_vec(),
+        upgrade_url: receipt.upgrade_url().map(str::to_string),
+    };
+    mutate(&mut parts);
+    ReceiptBuilder::new(parts.spec_version, parts.entry, parts.proof)
+        .super_proof_option(parts.super_proof)
+        .anchors(parts.anchors)
+        .upgrade_url_option(parts.upgrade_url)
+        .build(SourceTextCheck::assume_duplicate_property_names_already_rejected())
+}
+
+struct ReceiptParts {
+    spec_version: String,
+    entry: ReceiptEntry,
+    proof: ReceiptProof,
+    super_proof: Option<SuperProof>,
+    anchors: Vec<ReceiptAnchor>,
+    upgrade_url: Option<String>,
+}
 
 // ========== Helper Functions ==========
 
@@ -53,7 +90,8 @@ fn create_test_receipt(signing_key: &SigningKey) -> Receipt {
     let entry_id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
     let payload_hash = [0xaa; 32];
     let metadata = json!({"filename": "test.pdf"});
-    let metadata_hash = canonicalize_and_hash(&metadata);
+    let metadata_hash =
+        canonicalize_and_hash(&metadata).expect("metadata satisfies RFC 8785 Section 3.1");
 
     // Compute leaf hash
     let leaf_hash = compute_leaf_hash(&payload_hash, &metadata_hash);
@@ -85,18 +123,19 @@ fn create_test_receipt(signing_key: &SigningKey) -> Receipt {
     let checkpoint =
         Checkpoint::new(origin, tree_size, timestamp, root_hash, signature_bytes, key_id);
 
-    let metadata_hash = format_hash(&canonicalize_and_hash(&metadata));
+    let metadata_hash = format_hash(
+        &canonicalize_and_hash(&metadata).expect("metadata satisfies RFC 8785 Section 3.1"),
+    );
 
-    Receipt {
-        spec_version: RECEIPT_SPEC_VERSION.to_string(),
-        upgrade_url: None,
-        entry: atl_core::core::receipt::ReceiptEntry {
+    ReceiptBuilder::new(
+        RECEIPT_SPEC_VERSION.to_string(),
+        atl_core::core::receipt::ReceiptEntry {
             id: entry_id,
             payload_hash: format_hash(&payload_hash),
             metadata_hash,
             metadata,
         },
-        proof: atl_core::core::receipt::ReceiptProof {
+        atl_core::core::receipt::ReceiptProof {
             tree_size: 1,
             root_hash: format_hash(&root_hash),
             inclusion_path: vec![],
@@ -111,16 +150,18 @@ fn create_test_receipt(signing_key: &SigningKey) -> Receipt {
             },
             consistency_proof: None,
         },
-        super_proof: Some(atl_core::core::receipt::SuperProof {
-            genesis_super_root: format_hash(&root_hash),
-            data_tree_index: 0,
-            super_tree_size: 1,
-            super_root: format_hash(&root_hash),
-            inclusion: vec![],
-            consistency_to_origin: vec![],
-        }),
-        anchors: vec![],
-    }
+    )
+    .super_proof_option(Some(atl_core::core::receipt::SuperProof {
+        genesis_super_root: format_hash(&root_hash),
+        data_tree_index: 0,
+        super_tree_size: 1,
+        super_root: format_hash(&root_hash),
+        inclusion: vec![],
+        consistency_to_origin: vec![],
+    }))
+    .anchors(vec![])
+    .upgrade_url_option(None)
+    .build(atl_core::SourceTextCheck::assume_duplicate_property_names_already_rejected())
 }
 
 // ========== Integration Tests ==========
@@ -135,11 +176,12 @@ fn test_end_to_end_single_entry() {
     let metadata = json!({"filename": "document.pdf", "size": 1024});
 
     // Step 1: Canonicalize metadata
-    let metadata_canonical = canonicalize(&metadata);
+    let metadata_canonical = canonicalize(&metadata).expect("input satisfies RFC 8785 Section 3.1");
     assert!(!metadata_canonical.is_empty());
 
     // Step 2: Hash metadata
-    let metadata_hash = canonicalize_and_hash(&metadata);
+    let metadata_hash =
+        canonicalize_and_hash(&metadata).expect("metadata satisfies RFC 8785 Section 3.1");
     assert_eq!(metadata_hash.len(), 32);
 
     // Step 3: Compute leaf hash
@@ -170,7 +212,8 @@ fn test_end_to_end_multiple_entries() {
     let leaf_hashes: Vec<Hash> = entries
         .iter()
         .map(|(payload, metadata)| {
-            let metadata_hash = canonicalize_and_hash(metadata);
+            let metadata_hash =
+                canonicalize_and_hash(metadata).expect("metadata satisfies RFC 8785 Section 3.1");
             compute_leaf_hash(payload, &metadata_hash)
         })
         .collect();
@@ -210,9 +253,9 @@ fn test_receipt_creation_and_verification() {
     let restored = Receipt::from_json(&json).unwrap();
 
     // Verify fields match
-    assert_eq!(receipt.entry.id, restored.entry.id);
-    assert_eq!(receipt.proof.tree_size, restored.proof.tree_size);
-    assert_eq!(receipt.proof.leaf_index, restored.proof.leaf_index);
+    assert_eq!(receipt.entry().id, restored.entry().id);
+    assert_eq!(receipt.proof().tree_size, restored.proof().tree_size);
+    assert_eq!(receipt.proof().leaf_index, restored.proof().leaf_index);
 }
 
 #[test]
@@ -220,16 +263,18 @@ fn test_receipt_with_metadata_roundtrip() {
     let (signing_key, _verifying_key) = generate_test_keypair();
 
     // Create receipt with complex metadata
-    let mut receipt = create_test_receipt(&signing_key);
-    receipt.entry.metadata = json!({
-        "filename": "important_contract.pdf",
-        "size": 1_024_567,
-        "created": "2026-01-15T10:30:00Z",
-        "tags": ["important", "contract", "signed"],
-        "nested": {
-            "key1": "value1",
-            "key2": 42
-        }
+    let receipt = create_test_receipt(&signing_key);
+    let receipt = tamper(&receipt, |p| {
+        p.entry.metadata = json!({
+            "filename": "important_contract.pdf",
+            "size": 1_024_567,
+            "created": "2026-01-15T10:30:00Z",
+            "tags": ["important", "contract", "signed"],
+            "nested": {
+                "key1": "value1",
+                "key2": 42
+            }
+        })
     });
 
     // Serialize
@@ -239,8 +284,11 @@ fn test_receipt_with_metadata_roundtrip() {
     let restored = Receipt::from_json(&json).unwrap();
 
     // Verify metadata is preserved
-    assert_eq!(receipt.entry.metadata["filename"], restored.entry.metadata["filename"]);
-    assert_eq!(receipt.entry.metadata["nested"]["key1"], restored.entry.metadata["nested"]["key1"]);
+    assert_eq!(receipt.entry().metadata["filename"], restored.entry().metadata["filename"]);
+    assert_eq!(
+        receipt.entry().metadata["nested"]["key1"],
+        restored.entry().metadata["nested"]["key1"]
+    );
 }
 
 #[test]
@@ -283,9 +331,9 @@ fn test_jcs_canonicalization_deterministic() {
     ];
 
     for case in test_cases {
-        let result1 = canonicalize(&case);
-        let result2 = canonicalize(&case);
-        let result3 = canonicalize(&case);
+        let result1 = canonicalize(&case).expect("input satisfies RFC 8785 Section 3.1");
+        let result2 = canonicalize(&case).expect("input satisfies RFC 8785 Section 3.1");
+        let result3 = canonicalize(&case).expect("input satisfies RFC 8785 Section 3.1");
 
         assert_eq!(result1, result2);
         assert_eq!(result2, result3);
@@ -471,8 +519,8 @@ fn test_receipt_metadata_canonicalization() {
     let metadata1 = json!({"z": 1, "a": 2, "m": 3});
     let metadata2 = json!({"a": 2, "m": 3, "z": 1});
 
-    let canon1 = canonicalize(&metadata1);
-    let canon2 = canonicalize(&metadata2);
+    let canon1 = canonicalize(&metadata1).expect("input satisfies RFC 8785 Section 3.1");
+    let canon2 = canonicalize(&metadata2).expect("input satisfies RFC 8785 Section 3.1");
 
     assert_eq!(canon1, canon2);
     assert_eq!(canon1, r#"{"a":2,"m":3,"z":1}"#);
@@ -548,7 +596,7 @@ fn test_jcs_handles_unicode() {
         "emoji": "😀🎉🔥"
     });
 
-    let canonical = canonicalize(&value);
+    let canonical = canonicalize(&value).expect("input satisfies RFC 8785 Section 3.1");
 
     // Should not escape non-ASCII Unicode
     assert!(canonical.contains("café"));
@@ -663,7 +711,8 @@ fn test_end_to_end_consistency_verification() {
     let initial_leaves: Vec<Hash> = initial_entries
         .iter()
         .map(|(payload, metadata)| {
-            let metadata_hash = canonicalize_and_hash(metadata);
+            let metadata_hash =
+                canonicalize_and_hash(metadata).expect("metadata satisfies RFC 8785 Section 3.1");
             compute_leaf_hash(payload, &metadata_hash)
         })
         .collect();
@@ -681,7 +730,8 @@ fn test_end_to_end_consistency_verification() {
 
     let mut all_leaves = initial_leaves;
     for (payload, metadata) in &new_entries {
-        let metadata_hash = canonicalize_and_hash(metadata);
+        let metadata_hash =
+            canonicalize_and_hash(metadata).expect("metadata satisfies RFC 8785 Section 3.1");
         all_leaves.push(compute_leaf_hash(payload, &metadata_hash));
     }
 
@@ -718,15 +768,17 @@ fn test_receipt_with_rfc3161_anchor_wrong_hash() {
     use atl_core::{verify_receipt_with_key, ReceiptAnchor};
 
     let (signing_key, verifying_key) = generate_test_keypair();
-    let mut receipt = create_test_receipt(&signing_key);
+    let receipt = create_test_receipt(&signing_key);
 
-    receipt.anchors = vec![ReceiptAnchor::Rfc3161 {
-        target: "data_tree_root".to_string(),
-        target_hash: receipt.proof.root_hash.clone(),
-        tsa_url: "https://freetsa.org/tsr".to_string(),
-        timestamp: "2026-01-04T21:57:43Z".to_string(),
-        token_der: format!("base64:{FREETSA_TOKEN}"),
-    }];
+    let receipt = tamper(&receipt, |p| {
+        p.anchors = vec![ReceiptAnchor::Rfc3161 {
+            target: "data_tree_root".to_string(),
+            target_hash: receipt.proof().root_hash.clone(),
+            tsa_url: "https://freetsa.org/tsr".to_string(),
+            timestamp: "2026-01-04T21:57:43Z".to_string(),
+            token_der: format!("base64:{FREETSA_TOKEN}"),
+        }]
+    });
 
     let result = verify_receipt_with_key(&receipt, &verifying_key.to_bytes()).unwrap();
 
@@ -746,15 +798,17 @@ fn test_receipt_with_rfc3161_anchor_malformed() {
     use atl_core::{verify_receipt_with_key, ReceiptAnchor};
 
     let (signing_key, verifying_key) = generate_test_keypair();
-    let mut receipt = create_test_receipt(&signing_key);
+    let receipt = create_test_receipt(&signing_key);
 
-    receipt.anchors = vec![ReceiptAnchor::Rfc3161 {
-        target: "data_tree_root".to_string(),
-        target_hash: receipt.proof.root_hash.clone(),
-        tsa_url: "https://freetsa.org/tsr".to_string(),
-        timestamp: "2026-01-04T21:57:43Z".to_string(),
-        token_der: "base64:INVALID_DER_TOKEN".to_string(),
-    }];
+    let receipt = tamper(&receipt, |p| {
+        p.anchors = vec![ReceiptAnchor::Rfc3161 {
+            target: "data_tree_root".to_string(),
+            target_hash: receipt.proof().root_hash.clone(),
+            tsa_url: "https://freetsa.org/tsr".to_string(),
+            timestamp: "2026-01-04T21:57:43Z".to_string(),
+            token_der: "base64:INVALID_DER_TOKEN".to_string(),
+        }]
+    });
 
     let result = verify_receipt_with_key(&receipt, &verifying_key.to_bytes()).unwrap();
 
@@ -773,15 +827,17 @@ fn test_receipt_with_rfc3161_anchor_feature_disabled() {
     use atl_core::{verify_receipt_with_key, ReceiptAnchor};
 
     let (signing_key, verifying_key) = generate_test_keypair();
-    let mut receipt = create_test_receipt(&signing_key);
+    let receipt = create_test_receipt(&signing_key);
 
-    receipt.anchors = vec![ReceiptAnchor::Rfc3161 {
-        target: "data_tree_root".to_string(),
-        target_hash: receipt.proof.root_hash.clone(),
-        tsa_url: "https://freetsa.org/tsr".to_string(),
-        timestamp: "2026-01-04T21:57:43Z".to_string(),
-        token_der: "base64:AAAA".to_string(),
-    }];
+    let receipt = tamper(&receipt, |p| {
+        p.anchors = vec![ReceiptAnchor::Rfc3161 {
+            target: "data_tree_root".to_string(),
+            target_hash: receipt.proof().root_hash.clone(),
+            tsa_url: "https://freetsa.org/tsr".to_string(),
+            timestamp: "2026-01-04T21:57:43Z".to_string(),
+            token_der: "base64:AAAA".to_string(),
+        }]
+    });
 
     let result = verify_receipt_with_key(&receipt, &verifying_key.to_bytes()).unwrap();
 
@@ -801,10 +857,10 @@ fn test_receipt_with_wrong_metadata_hash_fails() {
     use atl_core::VerificationError;
 
     let (signing_key, verifying_key) = generate_test_keypair();
-    let mut receipt = create_test_receipt(&signing_key);
+    let receipt = create_test_receipt(&signing_key);
 
     // Corrupt the metadata_hash
-    receipt.entry.metadata_hash = format_hash(&[0xff; 32]);
+    let receipt = tamper(&receipt, |p| p.entry.metadata_hash = format_hash(&[0xff; 32]));
 
     let verifier = atl_core::core::verify::ReceiptVerifier::with_key(
         CheckpointVerifier::from_bytes(&verifying_key.to_bytes()).unwrap(),

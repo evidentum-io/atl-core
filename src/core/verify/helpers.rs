@@ -109,8 +109,24 @@ pub fn reconstruct_leaf_hash(
             message: e.to_string(),
         })?;
 
-    // Compute metadata hash via JCS
-    let computed_metadata_hash = canonicalize_and_hash(metadata);
+    // Compute metadata hash via JCS.
+    //
+    // A refusal here is NOT a mismatch: nothing was compared. The metadata
+    // breaks an RFC 8785 Section 3.1 input constraint, so no canonical form
+    // and no hash exist. Mapping it onto `MetadataHashMismatch` would report
+    // a contradiction that was never observed.
+    let computed_metadata_hash = canonicalize_and_hash(metadata).map_err(|e| match e {
+        crate::error::AtlError::JcsInputConstraint { path, reason } => {
+            VerificationError::MetadataNotCanonicalizable {
+                path: format!("/entry/metadata{path}"),
+                reason,
+            }
+        }
+        other => VerificationError::MetadataNotCanonicalizable {
+            path: "/entry/metadata".to_string(),
+            reason: other.to_string(),
+        },
+    })?;
 
     // Validate metadata hash matches
     if metadata_hash_from_receipt != computed_metadata_hash {
@@ -788,7 +804,8 @@ mod metadata_hash_tests {
     #[test]
     fn test_reconstruct_leaf_hash_valid() {
         let metadata = json!({});
-        let computed_hash = crate::core::jcs::canonicalize_and_hash(&metadata);
+        let computed_hash = crate::core::jcs::canonicalize_and_hash(&metadata)
+            .expect("metadata satisfies RFC 8785 Section 3.1");
         let metadata_hash_str = crate::core::receipt::format_hash(&computed_hash);
         let payload_hash_str = make_test_hash(0xaa);
 
@@ -825,7 +842,8 @@ mod metadata_hash_tests {
     #[test]
     fn test_reconstruct_leaf_hash_invalid_payload_hash_format() {
         let metadata = json!({});
-        let computed_hash = crate::core::jcs::canonicalize_and_hash(&metadata);
+        let computed_hash = crate::core::jcs::canonicalize_and_hash(&metadata)
+            .expect("metadata satisfies RFC 8785 Section 3.1");
         let metadata_hash_str = crate::core::receipt::format_hash(&computed_hash);
         let invalid_payload = "invalid";
 
@@ -844,7 +862,8 @@ mod metadata_hash_tests {
             "size": 1024,
             "tags": ["important", "signed"]
         });
-        let computed_hash = crate::core::jcs::canonicalize_and_hash(&metadata);
+        let computed_hash = crate::core::jcs::canonicalize_and_hash(&metadata)
+            .expect("metadata satisfies RFC 8785 Section 3.1");
         let metadata_hash_str = crate::core::receipt::format_hash(&computed_hash);
         let payload_hash_str = make_test_hash(0xaa);
 
@@ -857,7 +876,8 @@ mod metadata_hash_tests {
     fn test_reconstruct_leaf_hash_different_metadata_fails() {
         // Hash computed for one metadata
         let metadata1 = json!({"key": "value1"});
-        let computed_hash1 = crate::core::jcs::canonicalize_and_hash(&metadata1);
+        let computed_hash1 = crate::core::jcs::canonicalize_and_hash(&metadata1)
+            .expect("metadata satisfies RFC 8785 Section 3.1");
         let metadata_hash_str = crate::core::receipt::format_hash(&computed_hash1);
 
         // But we verify against different metadata

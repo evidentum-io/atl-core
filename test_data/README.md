@@ -122,10 +122,16 @@ exists so the test can distinguish two events instead of one:
 
 Asserting only "differs from the RFC value" would have accepted any wrong answer at all.
 
-`known_divergences` in the file analyses the three current causes. Two are serialization
-faults in `src/core/jcs.rs`; the third is a **parse** fault in the `serde_json` dependency,
-which reads a JSON number literal into the double next to the correct one — so the value is
-already wrong before canonicalization runs, and correcting the canonicalizer cannot fix it.
+`known_divergences` in the file analyses whatever causes are currently open. **It is empty:
+every case in the file is `pass`.** The three causes it used to describe — no exponential
+notation, shortest-digit ties broken away from zero, and a JSON number literal parsed into
+the double next to the correct one — are fixed; see CHANGELOG.md.
+
+The marker vocabulary is documented rather than deleted, because a future divergence must
+be recorded this way, with the RFC value left untouched, and never by editing `expected`.
+`tests/rfc_vectors.rs` keeps the two sides consistent in both directions: a marker with no
+description fails, and a description no case claims fails too, so a repair cannot leave
+prose behind describing a defect that no longer exists.
 
 ## Receipt Samples
 

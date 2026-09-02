@@ -329,8 +329,18 @@ pub fn verify_receipt_json(json: &str, public_key: &[u8; 32]) -> AtlResult<Verif
 ///
 /// ## Returns
 ///
-/// `true` if the inclusion proof is valid, `false` otherwise.
-#[must_use]
+/// `Ok(true)` if the inclusion proof is valid, `Ok(false)` if it is refuted.
+///
+/// ## Errors
+///
+/// [`AtlError::JcsInputConstraint`](crate::AtlError::JcsInputConstraint) when
+/// `metadata` has no RFC 8785 canonical form, so no leaf hash could be built
+/// and the proof was never evaluated.
+///
+/// This used to return a bare `bool`, and returning `false` there was a lie:
+/// "the proof does not hold" is a claim about the proof, and refusing the
+/// input establishes nothing about it. The signature now separates the two,
+/// because a total function has to answer even when it has nothing to say.
 pub fn verify_inclusion_only(
     payload_hash: &[u8; 32],
     metadata: &serde_json::Value,
@@ -338,9 +348,9 @@ pub fn verify_inclusion_only(
     leaf_index: u64,
     tree_size: u64,
     expected_root: &[u8; 32],
-) -> bool {
+) -> AtlResult<bool> {
     // Compute metadata hash
-    let metadata_hash = canonicalize_and_hash(metadata);
+    let metadata_hash = canonicalize_and_hash(metadata)?;
 
     // Compute leaf hash
     let leaf_hash = compute_leaf_hash(payload_hash, &metadata_hash);
@@ -349,5 +359,5 @@ pub fn verify_inclusion_only(
     let proof = InclusionProof { leaf_index, tree_size, path: inclusion_path.to_vec() };
 
     // Verify
-    verify_inclusion(&leaf_hash, &proof, expected_root).unwrap_or(false)
+    Ok(verify_inclusion(&leaf_hash, &proof, expected_root).unwrap_or(false))
 }

@@ -14,7 +14,7 @@
 //! a third-party implementer can check their own code against them without running
 //! or trusting `atl-core`.
 
-use atl_core::core::jcs::{canonicalize, canonicalize_and_hash};
+use atl_core::core::jcs::{canonicalize, canonicalize_and_hash, check_unique_property_names};
 use atl_core::core::merkle::{
     compute_genesis_leaf_hash, compute_leaf_hash, compute_root, generate_consistency_proof,
     generate_inclusion_proof, verify_consistency, verify_inclusion, ConsistencyProof, Hash,
@@ -22,6 +22,7 @@ use atl_core::core::merkle::{
 };
 use atl_core::core::receipt::SuperProof;
 use atl_core::core::verify::super_tree::{verify_consistency_to_origin, verify_super_inclusion};
+use atl_core::{AtlError, VerificationError};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -381,12 +382,15 @@ fn atl_leaf_composition_matches_frozen_values() {
 
         if let Some(metadata) = case.get("metadata") {
             assert_eq!(
-                canonicalize(metadata),
+                canonicalize(metadata).expect("frozen vector satisfies RFC 8785 Section 3.1"),
                 str_field(case, "metadata_canonical_jcs"),
                 "{name}: JCS canonical form diverges from the frozen vector"
             );
             assert_eq!(
-                hex::encode(canonicalize_and_hash(metadata)),
+                hex::encode(
+                    canonicalize_and_hash(metadata)
+                        .expect("frozen vector satisfies RFC 8785 Section 3.1"),
+                ),
                 str_field(case, "metadata_hash"),
                 "{name}: metadata_hash diverges from the frozen vector"
             );
@@ -606,7 +610,7 @@ fn rfc8785_canonicalization_cases() {
         assert_conformance(
             name,
             case,
-            &canonicalize(&input),
+            &canonicalize(&input).expect("a canonicalization case is canonicalizable"),
             "canonical form diverges from the RFC 8785 value",
         );
     }
@@ -626,21 +630,155 @@ fn rfc8785_number_serialization_cases() {
         assert_conformance(
             bits_hex,
             case,
-            &canonicalize(&Value::Number(number)),
+            &canonicalize(&Value::Number(number)).expect("Appendix B rows are finite doubles"),
             "number serialization diverges from RFC 8785 Appendix B",
         );
     }
 }
 
-/// Every `known_divergence` marker must name a divergence that the vector file
-/// actually documents, so the file always explains why a value is not met.
+/// RFC 8785 Section 3.1 constrains the *input*, not the output, and a case in
+/// `input_constraint_cases` therefore pins an outcome rather than a string:
+/// either a refusal, or -- for the inputs sitting just on the accepting side of
+/// the same boundary -- the canonical form.
+///
+/// Both directions are needed, and the split between them is not symmetric
+/// across the three constraints. Duplicate property names are refused, because
+/// neither RFC 8785 nor RFC 8259 Section 4 says which occurrence wins, so two
+/// conformant readers can compute two different hashes and both be right.
+/// Numbers are **never** refused: Appendix B notes (1) and (2) say the
+/// algorithm ignores how numbers are used, and Table 1 normalizes 2^68 rather
+/// than rejecting it — so every number row here is an `expects: "canonical"`
+/// row, several of them pinning outputs that differ from the digits written.
+/// The `checked_by` field says which layer acts, because the constraints
+/// become visible at different moments: duplicate names only in the raw text
+/// or at the field being deserialized, unpaired surrogates only in the parser.
+#[test]
+fn rfc8785_input_constraint_cases() {
+    let doc = load(JCS_VECTORS, "JCS");
+
+    for case in array_field(&doc, "input_constraint_cases") {
+        let name = str_field(case, "name");
+        let text = str_field(case, "input_json_text");
+        let checked_by = str_field(case, "checked_by");
+        let expects = str_field(case, "expects");
+        assert_eq!(str_field(case, "conformance"), "pass", "{name}: unexpected marker");
+
+        // Every case, whatever layer is meant to catch it, must go through the
+        // door a receipt goes through. A constraint enforced only by a helper
+        // nobody calls is not enforced.
+        let unique = check_unique_property_names(text);
+        let parsed = serde_json::from_str::<Value>(text);
+
+        match (expects, checked_by) {
+            ("error", "check_unique_property_names") => {
+                let err = unique.expect_err(name);
+                match &err {
+                    AtlError::JcsInputConstraint { path, .. } => {
+                        if let Some(expected_path) = case.get("error_path").and_then(Value::as_str)
+                        {
+                            assert_eq!(path, expected_path, "{name}: refusal names the wrong node");
+                        }
+                    }
+                    other => panic!("{name}: expected a Section 3.1 refusal, got {other}"),
+                }
+                // And the parser really would have hidden it: the duplicate is
+                // gone from the value, which is why the check reads text.
+                assert!(parsed.is_ok(), "{name}: serde_json accepts it, as expected");
+            }
+            ("not_confirmable", "receipt_provenance") => {
+                // NOT detection cases. Every route here hands the receipt a
+                // document whose duplicate is already lost -- `from_value` gets
+                // a `Value` an earlier parse flattened, `from_str` flattens it
+                // itself -- so nothing downstream can see it. The constraint is
+                // a property of the byte stream.
+                let flattened: Value = serde_json::from_str(text).expect("valid JSON");
+                let receipt: atl_core::Receipt =
+                    serde_json::from_value(flattened).expect("nothing left to detect");
+                let via_str: atl_core::Receipt =
+                    serde_json::from_str(text).expect("serde accepts the flattened document");
+
+                for (route, r) in [("from_value", &receipt), ("from_str", &via_str)] {
+                    assert!(
+                        !r.source_text_was_checked(),
+                        "{name}: {route} must not yield a confirmable receipt"
+                    );
+                }
+
+                // The text-scanning path, which is where detection does live.
+                assert!(matches!(
+                    check_unique_property_names(text).expect_err(name),
+                    AtlError::JcsInputConstraint { .. }
+                ));
+                assert!(atl_core::Receipt::from_json(text).is_err(), "{name}");
+
+                let result = atl_core::ReceiptVerifier::anchor_only().verify(&receipt);
+                assert!(!result.is_valid(), "{name}: confirmed a receipt of unchecked bytes");
+                assert!(
+                    result
+                        .errors()
+                        .iter()
+                        .any(|e| matches!(e, VerificationError::SourceTextNotChecked)),
+                    "{name}: {:?}",
+                    result.errors()
+                );
+                // The provenance finding itself must never be a refutation.
+                // (Other errors may legitimately be: the surrounding proof in
+                // this document is synthetic and its inclusion path does not
+                // check out. What is asserted here is that *this* error is an
+                // inability, and that it is present at all.)
+                assert!(
+                    !VerificationError::SourceTextNotChecked.is_refutation(),
+                    "{name}: unchecked provenance must never read as evidence against"
+                );
+            }
+            ("error", "json_parser") => {
+                assert!(
+                    parsed.is_err(),
+                    "{name}: the parser must refuse this, or an unpaired surrogate reaches \
+                     canonicalization"
+                );
+            }
+            ("canonical", _) => {
+                assert!(unique.is_ok(), "{name}: wrongly refused as a duplicate");
+                let value = parsed.unwrap_or_else(|e| panic!("{name}: not JSON: {e}"));
+                let canonical = canonicalize(&value).unwrap_or_else(|e| panic!("{name}: {e}"));
+                assert_eq!(canonical, str_field(case, "expected"), "{name}");
+
+                // The accepting side must also be a fixed point, which is what
+                // rules out a magnitude bound on integers: the canonical form
+                // of a large double is itself an integer literal above 2^53.
+                let reparsed: Value = serde_json::from_str(&canonical)
+                    .unwrap_or_else(|e| panic!("{name}: canonical form is not JSON: {e}"));
+                assert_eq!(
+                    canonicalize(&reparsed).unwrap_or_else(|e| panic!("{name}: {e}")),
+                    canonical,
+                    "{name}: canonicalization is not a fixed point here"
+                );
+            }
+            (other, _) => panic!("{name}: unknown `expects` value {other:?}"),
+        }
+    }
+}
+
+/// The vector file's divergence bookkeeping must agree with itself in both
+/// directions: every `known_divergence` marker names a divergence the file
+/// documents, and every documented divergence is still claimed by a case.
+///
+/// The second direction is what makes a repair finish. When a divergence is
+/// fixed, its cases flip to `pass`; a prose entry left behind in
+/// `known_divergences` would then describe a defect that no longer exists, and
+/// the file would be lying in the safe direction. Both sets are currently empty,
+/// which is the state the test is meant to keep honest -- it fails the moment
+/// one side gains an entry without the other.
 #[test]
 fn rfc8785_divergence_markers_are_documented() {
     let doc = load(JCS_VECTORS, "JCS");
     let documented = field(&doc, "known_divergences");
+    let documented = documented.as_object().expect("`known_divergences` is an object");
+    let mut claimed: Vec<&str> = Vec::new();
 
-    let mut seen = 0;
-    for group in ["canonicalization_cases", "number_serialization_cases"] {
+    for group in ["canonicalization_cases", "number_serialization_cases", "input_constraint_cases"]
+    {
         for case in array_field(&doc, group) {
             if str_field(case, "conformance") != "known_divergence" {
                 continue;
@@ -664,15 +802,23 @@ fn rfc8785_divergence_markers_are_documented() {
             for key in array_field(case, "divergence") {
                 let key = key.as_str().expect("divergence key is a string");
                 assert!(
-                    documented.get(key).is_some(),
+                    documented.contains_key(key),
                     "{name}: divergence {key:?} is referenced but not described in \
                      `known_divergences`"
                 );
-                seen += 1;
+                claimed.push(key);
             }
         }
     }
-    assert!(seen > 0, "divergence markers vanished without the vector file being updated");
+
+    for key in documented.keys() {
+        assert!(
+            claimed.contains(&key.as_str()),
+            "`known_divergences` still describes {key:?}, but no case is marked with it. \
+             Either the divergence was repaired and its description must go, or a case \
+             lost the marker it should still carry."
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -732,12 +878,18 @@ fn vector_files_contain_no_placeholders() {
 /// its first line.
 #[test]
 fn vectors_directory_is_free_of_self_grounded_values() {
-    const EXTERNALLY_GROUNDED: [&str; 6] = [
+    const EXTERNALLY_GROUNDED: [&str; 7] = [
         "rfc6962-published",
         "rfc6962-symbolic",
         "rfc6962-derived",
         "rfc8785-published",
         "rfc8785-derived",
+        // The RFC 8785 Section 3.1 input constraints. Grounded in the rule
+        // text ("MUST NOT exhibit duplicate property names", and so on), not
+        // in anything atl-core does: what the case fixes is that a conformant
+        // implementation has no canonical form to return, which the RFC states
+        // and this crate merely obeys.
+        "rfc8785-input-constraint",
         "atl-spec-derived",
     ];
 

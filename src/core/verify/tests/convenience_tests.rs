@@ -3,6 +3,7 @@
 use crate::core::checkpoint::{Checkpoint, CheckpointJson, CheckpointVerifier};
 use crate::core::jcs::canonicalize_and_hash;
 use crate::core::merkle::compute_leaf_hash;
+use crate::core::receipt::ReceiptBuilder;
 use crate::core::receipt::{
     format_hash, format_signature, Receipt, ReceiptEntry, ReceiptProof, SuperProof,
 };
@@ -24,7 +25,8 @@ fn create_test_receipt() -> (Receipt, [u8; 32]) {
 
     let payload_hash = [0xAAu8; 32];
     let metadata = json!({"test": "data"});
-    let metadata_hash = canonicalize_and_hash(&metadata);
+    let metadata_hash =
+        canonicalize_and_hash(&metadata).expect("metadata satisfies RFC 8785 Section 3.1");
     let leaf_hash = compute_leaf_hash(&payload_hash, &metadata_hash);
     let root_hash = leaf_hash;
 
@@ -39,16 +41,15 @@ fn create_test_receipt() -> (Receipt, [u8; 32]) {
     let signature = signing_key.sign(&blob);
     checkpoint.signature = signature.to_bytes();
 
-    let receipt = Receipt {
-        spec_version: "2.0.0".to_string(),
-        upgrade_url: None,
-        entry: ReceiptEntry {
+    let receipt = ReceiptBuilder::new(
+        "2.0.0".to_string(),
+        ReceiptEntry {
             id: Uuid::nil(),
             payload_hash: format_hash(&payload_hash),
             metadata_hash: format_hash(&metadata_hash),
             metadata,
         },
-        proof: ReceiptProof {
+        ReceiptProof {
             leaf_index: 0,
             tree_size: 1,
             root_hash: format_hash(&root_hash),
@@ -63,16 +64,20 @@ fn create_test_receipt() -> (Receipt, [u8; 32]) {
             },
             consistency_proof: None,
         },
-        super_proof: Some(SuperProof {
-            genesis_super_root: format_hash(&root_hash),
-            data_tree_index: 0,
-            super_tree_size: 1,
-            super_root: format_hash(&root_hash),
-            inclusion: vec![],
-            consistency_to_origin: vec![],
-        }),
-        anchors: vec![],
-    };
+    )
+    .super_proof_option(Some(SuperProof {
+        genesis_super_root: format_hash(&root_hash),
+        data_tree_index: 0,
+        super_tree_size: 1,
+        super_root: format_hash(&root_hash),
+        inclusion: vec![],
+        consistency_to_origin: vec![],
+    }))
+    .anchors(vec![])
+    .upgrade_url_option(None)
+    .build(
+        crate::core::receipt::SourceTextCheck::assume_duplicate_property_names_already_rejected(),
+    );
 
     (receipt, verifying_key.to_bytes())
 }
@@ -240,7 +245,8 @@ fn test_verify_receipt_json_deprecated() {
 fn test_verify_inclusion_only_valid() {
     let payload_hash = [0xAAu8; 32];
     let metadata = json!({"test": "data"});
-    let metadata_hash = canonicalize_and_hash(&metadata);
+    let metadata_hash =
+        canonicalize_and_hash(&metadata).expect("metadata satisfies RFC 8785 Section 3.1");
     let leaf_hash = compute_leaf_hash(&payload_hash, &metadata_hash);
 
     // Single leaf tree: root = leaf
@@ -251,7 +257,8 @@ fn test_verify_inclusion_only_valid() {
         0,          // Leaf index
         1,          // Tree size
         &leaf_hash, // Expected root
-    );
+    )
+    .expect("test metadata is canonicalizable");
 
     assert!(result);
 }
@@ -262,7 +269,8 @@ fn test_verify_inclusion_only_invalid() {
     let metadata = json!({"test": "data"});
     let wrong_root = [0xFFu8; 32];
 
-    let result = verify_inclusion_only(&payload_hash, &metadata, &[], 0, 1, &wrong_root);
+    let result = verify_inclusion_only(&payload_hash, &metadata, &[], 0, 1, &wrong_root)
+        .expect("test metadata is canonicalizable");
 
     assert!(!result);
 }
@@ -277,11 +285,13 @@ fn test_verify_inclusion_only_with_path() {
     let path = vec![sibling];
 
     // Compute expected root
-    let metadata_hash = canonicalize_and_hash(&metadata);
+    let metadata_hash =
+        canonicalize_and_hash(&metadata).expect("metadata satisfies RFC 8785 Section 3.1");
     let leaf_hash = compute_leaf_hash(&payload_hash, &metadata_hash);
     let root = crate::core::merkle::hash_children(&leaf_hash, &sibling);
 
-    let result = verify_inclusion_only(&payload_hash, &metadata, &path, 0, 2, &root);
+    let result = verify_inclusion_only(&payload_hash, &metadata, &path, 0, 2, &root)
+        .expect("test metadata is canonicalizable");
 
     assert!(result);
 }
@@ -299,7 +309,8 @@ fn test_verify_inclusion_only_zero_tree_size() {
         0,
         0, // Invalid: zero size
         &[0u8; 32],
-    );
+    )
+    .expect("test metadata is canonicalizable");
 
     assert!(!result);
 }
@@ -317,7 +328,8 @@ fn test_verify_inclusion_only_index_out_of_bounds() {
         5, // Index too large
         2, // Tree size
         &[0u8; 32],
-    );
+    )
+    .expect("test metadata is canonicalizable");
 
     assert!(!result);
 }

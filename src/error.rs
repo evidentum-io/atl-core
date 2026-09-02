@@ -183,6 +183,23 @@ pub enum AtlError {
     #[error("JCS error: {0}")]
     Jcs(String),
 
+    /// Input violates one of the RFC 8785 Section 3.1 constraints on the data
+    /// to be canonicalized, so the value has no canonical form at all.
+    ///
+    /// This is *not* a statement that a receipt is wrong. It says this
+    /// implementation cannot compute a canonical form for the input, and
+    /// therefore cannot compute the `metadata_hash` that would be compared
+    /// against. Consumers must keep that distinction: see
+    /// [`VerificationError::MetadataNotCanonicalizable`](crate::core::verify::VerificationError::MetadataNotCanonicalizable).
+    #[error("RFC 8785 Section 3.1 violated at JSON Pointer {path:?}: {reason}")]
+    JcsInputConstraint {
+        /// RFC 6901 JSON Pointer to the offending node; the empty string is
+        /// the document root.
+        path: String,
+        /// Which constraint was broken, and what the input did.
+        reason: String,
+    },
+
     /// JSON parsing/serialization error
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
@@ -244,6 +261,7 @@ impl AtlError {
                 | Self::Rfc3161ParseError(_)
                 | Self::Rfc3161UnsupportedAlgorithm(_)
                 | Self::Json(_)
+                | Self::JcsInputConstraint { .. }
                 | Self::Base64Decode(_)
                 | Self::HexDecode(_)
                 | Self::InvalidUuid(_)
@@ -341,6 +359,25 @@ mod tests {
         assert!(
             !AtlError::Json(serde_json::from_str::<()>("x").unwrap_err()).is_verification_failure()
         );
+    }
+
+    #[test]
+    fn test_jcs_input_constraint_display_names_the_path() {
+        let err = AtlError::JcsInputConstraint {
+            path: "/entry/metadata/claims/0/amount".into(),
+            reason: "the integer 9007199254740993 is not".into(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "RFC 8785 Section 3.1 violated at JSON Pointer \
+             \"/entry/metadata/claims/0/amount\": the integer 9007199254740993 is not"
+        );
+
+        // An inability to canonicalize is an input-format problem, never a
+        // refutation of a proof.
+        assert!(err.is_format_error());
+        assert!(!err.is_verification_failure());
+        assert!(!err.is_proof_error());
     }
 
     #[test]
@@ -461,6 +498,10 @@ mod tests {
             AtlError::Rfc3161FeatureDisabled,
             AtlError::OtsHashMismatch { proof_hash: "aabb".into(), expected_hash: "ccdd".into() },
             AtlError::Jcs("error".into()),
+            AtlError::JcsInputConstraint {
+                path: "/entry/metadata/n".into(),
+                reason: "not an IEEE 754 double".into(),
+            },
             AtlError::Base64Decode("error".into()),
             AtlError::HexDecode("error".into()),
             AtlError::InvalidUuid("error".into()),

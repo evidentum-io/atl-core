@@ -12,7 +12,8 @@
 //! - **Receipt parsing** and structure validation
 //! - **Anchor-based verification** (RFC 3161 TSA, Bitcoin OTS)
 //! - **Offline verification** of evidence receipts
-//! - **JCS canonicalization** per RFC 8785
+//! - **JCS canonicalization** per RFC 8785 -- see [`core::jcs`] for why the JSON
+//!   *parser* is part of that guarantee and not a free choice
 //!
 //! ## Trust Model (ATL Protocol v2.0)
 //!
@@ -164,10 +165,12 @@ pub use core::checkpoint::{
 pub use core::receipt::{
     Receipt,
     ReceiptAnchor,
+    ReceiptBuilder,
     ReceiptConsistencyProof,
     ReceiptEntry,
     ReceiptProof,
     ReceiptTier,
+    SourceTextCheck,
     // Super-Tree types (mandatory in v2.0)
     SuperProof,
     // Anchor target constants (mandatory in v2.0)
@@ -220,7 +223,7 @@ pub use core::verify::{
 };
 
 // JCS canonicalization
-pub use core::jcs::{canonicalize, canonicalize_and_hash};
+pub use core::jcs::{canonicalize, canonicalize_and_hash, check_unique_property_names};
 
 // OTS (OpenTimestamps) parsing (feature-gated)
 #[cfg(feature = "bitcoin-ots")]

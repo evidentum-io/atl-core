@@ -8,6 +8,8 @@
 
 use crate::core::checkpoint::{CheckpointJson, CheckpointVerifier};
 use crate::core::jcs::canonicalize_and_hash;
+use crate::core::receipt::test_support::tamper;
+use crate::core::receipt::ReceiptBuilder;
 use crate::core::receipt::{
     format_hash, Receipt, ReceiptAnchor, ReceiptEntry, ReceiptProof, SuperProof,
 };
@@ -35,18 +37,16 @@ mod super_verification_tests {
 
     fn make_valid_receipt_with_super_proof() -> Receipt {
         let metadata = serde_json::json!({});
-        let metadata_hash = format_hash(&canonicalize_and_hash(&metadata));
+        let metadata_hash = format_hash(
+            &canonicalize_and_hash(&metadata).expect("metadata satisfies RFC 8785 Section 3.1"),
+        );
 
-        Receipt {
-            spec_version: "2.0.0".to_string(),
-            upgrade_url: None,
-            entry: ReceiptEntry {
+        ReceiptBuilder::new("2.0.0".to_string(), ReceiptEntry {
                 id: uuid::Uuid::nil(),
                 payload_hash: make_test_hash(0x11),
                 metadata_hash,
                 metadata,
-            },
-            proof: ReceiptProof {
+            }, ReceiptProof {
                 tree_size: 1,
                 root_hash: make_test_hash(0x22),
                 inclusion_path: vec![],
@@ -60,17 +60,14 @@ mod super_verification_tests {
                     key_id: make_test_hash(0x44),
                 },
                 consistency_proof: None,
-            },
-            super_proof: Some(SuperProof {
+            }).super_proof_option(Some(SuperProof {
                 genesis_super_root: make_test_hash(0x22),
                 data_tree_index: 0,
                 super_tree_size: 1,
                 super_root: make_test_hash(0x22),
                 inclusion: vec![],
                 consistency_to_origin: vec![],
-            }),
-            anchors: vec![],
-        }
+            })).anchors(vec![]).upgrade_url_option(None).build(crate::core::receipt::SourceTextCheck::assume_duplicate_property_names_already_rejected())
     }
 
     #[test]
@@ -89,12 +86,14 @@ mod super_verification_tests {
 
     #[test]
     fn test_super_inclusion_failure_invalidates_receipt() {
-        let mut receipt = make_valid_receipt_with_super_proof();
+        let receipt = make_valid_receipt_with_super_proof();
         // Make super_inclusion fail by using wrong hash
-        if let Some(ref mut sp) = receipt.super_proof {
-            sp.inclusion = vec![make_test_hash(0xff)];
-            sp.super_tree_size = 2;
-        }
+        let receipt = tamper(&receipt, |p| {
+            if let Some(sp) = p.super_proof.as_mut() {
+                sp.inclusion = vec![make_test_hash(0xff)];
+                sp.super_tree_size = 2;
+            }
+        });
 
         let verifier = ReceiptVerifier::new(make_test_verifier());
         let result = verifier.verify(&receipt);
@@ -109,12 +108,14 @@ mod super_verification_tests {
 
     #[test]
     fn test_super_consistency_failure_invalidates_receipt() {
-        let mut receipt = make_valid_receipt_with_super_proof();
+        let receipt = make_valid_receipt_with_super_proof();
         // Make consistency_to_origin fail
-        if let Some(ref mut sp) = receipt.super_proof {
-            sp.super_tree_size = 2;
-            sp.consistency_to_origin = vec![make_test_hash(0xff)];
-        }
+        let receipt = tamper(&receipt, |p| {
+            if let Some(sp) = p.super_proof.as_mut() {
+                sp.super_tree_size = 2;
+                sp.consistency_to_origin = vec![make_test_hash(0xff)];
+            }
+        });
 
         let verifier = ReceiptVerifier::new(make_test_verifier());
         let result = verifier.verify(&receipt);
@@ -166,8 +167,8 @@ mod super_verification_tests {
 
     #[test]
     fn test_unsupported_version_fails() {
-        let mut receipt = make_valid_receipt_with_super_proof();
-        receipt.spec_version = "1.0.0".to_string();
+        let receipt = make_valid_receipt_with_super_proof();
+        let receipt = tamper(&receipt, |p| p.spec_version = "1.0.0".to_string());
 
         let verifier = ReceiptVerifier::new(make_test_verifier());
         let result = verifier.verify(&receipt);
@@ -181,10 +182,12 @@ mod super_verification_tests {
 
     #[test]
     fn test_invalid_genesis_super_root_hash() {
-        let mut receipt = make_valid_receipt_with_super_proof();
-        if let Some(ref mut sp) = receipt.super_proof {
-            sp.genesis_super_root = "invalid".to_string();
-        }
+        let receipt = make_valid_receipt_with_super_proof();
+        let receipt = tamper(&receipt, |p| {
+            if let Some(sp) = p.super_proof.as_mut() {
+                sp.genesis_super_root = "invalid".to_string();
+            }
+        });
 
         let verifier = ReceiptVerifier::new(make_test_verifier());
         let result = verifier.verify(&receipt);
@@ -198,10 +201,12 @@ mod super_verification_tests {
 
     #[test]
     fn test_invalid_super_root_hash() {
-        let mut receipt = make_valid_receipt_with_super_proof();
-        if let Some(ref mut sp) = receipt.super_proof {
-            sp.super_root = "invalid".to_string();
-        }
+        let receipt = make_valid_receipt_with_super_proof();
+        let receipt = tamper(&receipt, |p| {
+            if let Some(sp) = p.super_proof.as_mut() {
+                sp.super_root = "invalid".to_string();
+            }
+        });
 
         let verifier = ReceiptVerifier::new(make_test_verifier());
         let result = verifier.verify(&receipt);
@@ -233,18 +238,16 @@ mod receipt_super_proof_integration_tests {
 
     fn make_v2_receipt_full() -> Receipt {
         let metadata = serde_json::json!({});
-        let metadata_hash = format_hash(&canonicalize_and_hash(&metadata));
+        let metadata_hash = format_hash(
+            &canonicalize_and_hash(&metadata).expect("metadata satisfies RFC 8785 Section 3.1"),
+        );
 
-        Receipt {
-            spec_version: "2.0.0".to_string(),
-            upgrade_url: None,
-            entry: ReceiptEntry {
+        ReceiptBuilder::new("2.0.0".to_string(), ReceiptEntry {
                 id: uuid::Uuid::nil(),
                 payload_hash: make_hash(0x11),
                 metadata_hash,
                 metadata,
-            },
-            proof: ReceiptProof {
+            }, ReceiptProof {
                 tree_size: 10,
                 root_hash: make_hash(0xaa),
                 inclusion_path: vec![make_hash(0x22), make_hash(0x33)],
@@ -258,16 +261,14 @@ mod receipt_super_proof_integration_tests {
                     key_id: make_hash(0x44),
                 },
                 consistency_proof: None,
-            },
-            super_proof: Some(SuperProof {
+            }).super_proof_option(Some(SuperProof {
                 genesis_super_root: make_hash(0x00),
                 data_tree_index: 3,
                 super_tree_size: 10,
                 super_root: make_hash(0xbb),
                 inclusion: vec![make_hash(0xcc), make_hash(0xdd)],
                 consistency_to_origin: vec![make_hash(0xee)],
-            }),
-            anchors: vec![
+            })).anchors(vec![
                 // TSA anchor targeting data_tree_root
                 ReceiptAnchor::Rfc3161 {
                     target: "data_tree_root".to_string(),
@@ -285,8 +286,7 @@ mod receipt_super_proof_integration_tests {
                     bitcoin_block_time: "2026-01-13T11:30:00Z".to_string(),
                     ots_proof: "base64:BBBB".to_string(),
                 },
-            ],
-        }
+            ]).upgrade_url_option(None).build(crate::core::receipt::SourceTextCheck::assume_duplicate_property_names_already_rejected())
     }
 
     // === Missing super_proof Tests ===
@@ -324,7 +324,7 @@ mod receipt_super_proof_integration_tests {
         let receipt = Receipt::from_json(json).expect("Receipt-Lite should parse");
 
         // Should parse successfully and have no super_proof
-        assert!(receipt.super_proof.is_none());
+        assert!(receipt.super_proof().is_none());
         assert_eq!(receipt.tier(), crate::core::receipt::ReceiptTier::Lite);
     }
 
@@ -332,8 +332,8 @@ mod receipt_super_proof_integration_tests {
     fn test_unsupported_version_rejected() {
         // Receipt with unsupported version should fail verification
 
-        let mut receipt = make_v2_receipt_full();
-        receipt.spec_version = "3.0.0".to_string();
+        let receipt = make_v2_receipt_full();
+        let receipt = tamper(&receipt, |p| p.spec_version = "3.0.0".to_string());
 
         let verifier = ReceiptVerifier::new(make_test_verifier());
         let result = verifier.verify(&receipt);
@@ -354,8 +354,8 @@ mod receipt_super_proof_integration_tests {
     /// `is_supported_spec_version` rather than a literal of its own.
     #[test]
     fn test_later_minor_revision_rejected() {
-        let mut receipt = make_v2_receipt_full();
-        receipt.spec_version = "2.0.1".to_string();
+        let receipt = make_v2_receipt_full();
+        let receipt = tamper(&receipt, |p| p.spec_version = "2.0.1".to_string());
 
         let verifier = ReceiptVerifier::new(make_test_verifier());
         let result = verifier.verify(&receipt);
@@ -375,7 +375,7 @@ mod receipt_super_proof_integration_tests {
         let verifier = ReceiptVerifier::new(make_test_verifier());
 
         // super_proof is now Option
-        let super_proof = receipt.super_proof.as_ref().expect("Should have super_proof");
+        let super_proof = receipt.super_proof().expect("Should have super_proof");
         assert_eq!(super_proof.data_tree_index, 3);
 
         // Full verification should include super_proof validation
@@ -391,7 +391,7 @@ mod receipt_super_proof_integration_tests {
         let receipt = make_v2_receipt_full();
 
         // super_proof is now Option
-        let super_proof = receipt.super_proof.as_ref().expect("Should have super_proof");
+        let super_proof = receipt.super_proof().expect("Should have super_proof");
 
         // Verify data_tree_index matches what we expect
         assert_eq!(super_proof.data_tree_index, 3);
@@ -407,14 +407,14 @@ mod receipt_super_proof_integration_tests {
 
         // Find OTS anchor
         let ots_anchor =
-            receipt.anchors.iter().find(|a| matches!(a, ReceiptAnchor::BitcoinOts { .. }));
+            receipt.anchors().iter().find(|a| matches!(a, ReceiptAnchor::BitcoinOts { .. }));
         assert!(ots_anchor.is_some());
 
         if let ReceiptAnchor::BitcoinOts { target, target_hash, .. } = ots_anchor.unwrap() {
             assert_eq!(target, "super_root");
 
             // target_hash should match super_proof.super_root
-            let super_proof = receipt.super_proof.as_ref().expect("Should have super_proof");
+            let super_proof = receipt.super_proof().expect("Should have super_proof");
             assert_eq!(target_hash, &super_proof.super_root);
         }
     }
@@ -425,14 +425,14 @@ mod receipt_super_proof_integration_tests {
 
         // Find TSA anchor
         let tsa_anchor =
-            receipt.anchors.iter().find(|a| matches!(a, ReceiptAnchor::Rfc3161 { .. }));
+            receipt.anchors().iter().find(|a| matches!(a, ReceiptAnchor::Rfc3161 { .. }));
         assert!(tsa_anchor.is_some());
 
         if let ReceiptAnchor::Rfc3161 { target, target_hash, .. } = tsa_anchor.unwrap() {
             assert_eq!(target, "data_tree_root");
 
             // target_hash should match proof.checkpoint.tree_head (which is proof.root_hash)
-            assert_eq!(target_hash, &receipt.proof.root_hash);
+            assert_eq!(target_hash, &receipt.proof().root_hash);
         }
     }
 
@@ -440,12 +440,14 @@ mod receipt_super_proof_integration_tests {
 
     #[test]
     fn test_verify_receipt_invalid_super_proof_genesis() {
-        let mut receipt = make_v2_receipt_full();
+        let receipt = make_v2_receipt_full();
 
         // Corrupt the genesis_super_root
-        if let Some(ref mut sp) = receipt.super_proof {
-            sp.genesis_super_root = "invalid".to_string();
-        }
+        let receipt = tamper(&receipt, |p| {
+            if let Some(sp) = p.super_proof.as_mut() {
+                sp.genesis_super_root = "invalid".to_string();
+            }
+        });
 
         let verifier = ReceiptVerifier::new(make_test_verifier());
         let result = verifier.verify(&receipt);
@@ -458,12 +460,14 @@ mod receipt_super_proof_integration_tests {
 
     #[test]
     fn test_verify_receipt_invalid_super_proof_inclusion() {
-        let mut receipt = make_v2_receipt_full();
+        let receipt = make_v2_receipt_full();
 
         // Corrupt an inclusion hash
-        if let Some(ref mut sp) = receipt.super_proof {
-            sp.inclusion[0] = "invalid".to_string();
-        }
+        let receipt = tamper(&receipt, |p| {
+            if let Some(sp) = p.super_proof.as_mut() {
+                sp.inclusion[0] = "invalid".to_string();
+            }
+        });
 
         let verifier = ReceiptVerifier::new(make_test_verifier());
         let result = verifier.verify(&receipt);
@@ -478,12 +482,14 @@ mod receipt_super_proof_integration_tests {
 
     #[test]
     fn test_verify_receipt_super_proof_consistency_to_origin() {
-        let mut receipt = make_v2_receipt_full();
+        let receipt = make_v2_receipt_full();
 
         // Corrupt consistency_to_origin
-        if let Some(ref mut sp) = receipt.super_proof {
-            sp.consistency_to_origin = vec!["invalid".to_string()];
-        }
+        let receipt = tamper(&receipt, |p| {
+            if let Some(sp) = p.super_proof.as_mut() {
+                sp.consistency_to_origin = vec!["invalid".to_string()];
+            }
+        });
 
         let verifier = ReceiptVerifier::new(make_test_verifier());
         let result = verifier.verify(&receipt);
@@ -499,14 +505,16 @@ mod receipt_super_proof_integration_tests {
 
     #[test]
     fn test_verify_receipt_ots_target_mismatch() {
-        let mut receipt = make_v2_receipt_full();
+        let receipt = make_v2_receipt_full();
 
         // Change OTS target_hash to not match super_proof.super_root
-        for anchor in &mut receipt.anchors {
-            if let ReceiptAnchor::BitcoinOts { target_hash, .. } = anchor {
-                *target_hash = make_hash(0xff); // Wrong hash
+        let receipt = tamper(&receipt, |p| {
+            for anchor in &mut p.anchors {
+                if let ReceiptAnchor::BitcoinOts { target_hash, .. } = anchor {
+                    *target_hash = make_hash(0xff); // Wrong hash
+                }
             }
-        }
+        });
 
         let verifier = ReceiptVerifier::new(make_test_verifier());
         let result = verifier.verify(&receipt);
@@ -531,14 +539,16 @@ mod receipt_super_proof_integration_tests {
 
     #[test]
     fn test_verify_receipt_tsa_target_mismatch() {
-        let mut receipt = make_v2_receipt_full();
+        let receipt = make_v2_receipt_full();
 
         // Change TSA target_hash to not match checkpoint.tree_head
-        for anchor in &mut receipt.anchors {
-            if let ReceiptAnchor::Rfc3161 { target_hash, .. } = anchor {
-                *target_hash = make_hash(0xff); // Wrong hash
+        let receipt = tamper(&receipt, |p| {
+            for anchor in &mut p.anchors {
+                if let ReceiptAnchor::Rfc3161 { target_hash, .. } = anchor {
+                    *target_hash = make_hash(0xff); // Wrong hash
+                }
             }
-        }
+        });
 
         let verifier = ReceiptVerifier::new(make_test_verifier());
         let result = verifier.verify(&receipt);
@@ -601,11 +611,11 @@ mod receipt_super_proof_integration_tests {
         let json = serde_json::to_string_pretty(&receipt).unwrap();
         let restored: Receipt = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(receipt.spec_version, restored.spec_version);
+        assert_eq!(receipt.spec_version(), restored.spec_version());
 
         // super_proof is now Option
-        let sp_orig = receipt.super_proof.as_ref().expect("Should have super_proof");
-        let sp_rest = restored.super_proof.as_ref().expect("Should have super_proof");
+        let sp_orig = receipt.super_proof().expect("Should have super_proof");
+        let sp_rest = restored.super_proof().expect("Should have super_proof");
         assert_eq!(sp_orig.genesis_super_root, sp_rest.genesis_super_root);
         assert_eq!(sp_orig.data_tree_index, sp_rest.data_tree_index);
         assert_eq!(sp_orig.super_tree_size, sp_rest.super_tree_size);
@@ -703,18 +713,16 @@ mod signature_verification_tests {
 
     fn make_test_receipt() -> Receipt {
         let metadata = serde_json::json!({});
-        let metadata_hash = format_hash(&canonicalize_and_hash(&metadata));
+        let metadata_hash = format_hash(
+            &canonicalize_and_hash(&metadata).expect("metadata satisfies RFC 8785 Section 3.1"),
+        );
 
-        Receipt {
-            spec_version: "2.0.0".to_string(),
-            upgrade_url: None,
-            entry: ReceiptEntry {
+        ReceiptBuilder::new("2.0.0".to_string(), ReceiptEntry {
                 id: uuid::Uuid::nil(),
                 payload_hash: make_test_hash(0x11),
                 metadata_hash,
                 metadata,
-            },
-            proof: ReceiptProof {
+            }, ReceiptProof {
                 tree_size: 1,
                 root_hash: make_test_hash(0x22),
                 inclusion_path: vec![],
@@ -728,10 +736,7 @@ mod signature_verification_tests {
                     key_id: make_test_hash(0x44),
                 },
                 consistency_proof: None,
-            },
-            super_proof: None,
-            anchors: vec![],
-        }
+            }).super_proof_option(None).anchors(vec![]).upgrade_url_option(None).build(crate::core::receipt::SourceTextCheck::assume_duplicate_property_names_already_rejected())
     }
 
     #[test]
