@@ -1,0 +1,120 @@
+{
+  "description": "Frozen vectors for the ATL-specific parts of leaf construction: JCS canonicalization of entry metadata, metadata_hash, and the composite leaf hash. No RFC publishes these; each value is derived by hand from the named specification clause using an independent SHA-256 (CPython hashlib) and an independent JCS implementation -- never atl-core.",
+  "provenance": {
+    "origins": {
+      "atl-spec-derived": "Derived by hand from atl-protocol-ietf.md, section 'Merkle Tree Structure' > 'Leaf Hash Calculation' and section 'Verification Algorithm' > 'Reconstruct Leaf Hash', using an independent SHA-256 and an independent RFC 8785 canonicalizer. Each entry carries the exact byte string that was hashed, so the value can be checked by reading and re-hashing, without running atl-core.",
+      "rfc8785-derived": "The canonical form was produced by an independent implementation of the RFC 8785 rules (Section 3.2.2.2 string escaping, Section 3.2.3 UTF-16 code-unit key order). All metadata here uses integers only, so the ES6 floating-point number algorithm of RFC 8785 Section 3.2.2.3 is deliberately not exercised -- see test_data/vectors/jcs/cases.json, which does exercise it and records a divergence."
+    }
+  },
+  "formulas": {
+    "metadata_hash": {
+      "formula": "MetadataHash = SHA256(JCS(metadata))",
+      "source": "atl-protocol-ietf.md, 'Merkle Tree Structure' > 'Leaf Hash Calculation'; 'Verification Algorithm' > 'Reconstruct Leaf Hash' steps 2-4; RFC 8785"
+    },
+    "leaf_hash": {
+      "formula": "LeafHash = SHA256(0x00 || PayloadHash || MetadataHash)",
+      "source": "atl-protocol-ietf.md, 'Merkle Tree Structure' > 'Leaf Hash Calculation'",
+      "note": "This is RFC 6962's leaf rule (SHA256(0x00 || d), RFC 6962 Section 2.1) applied to the 64-byte record d = PayloadHash || MetadataHash. An ATL Data Tree is therefore an ordinary RFC 6962 tree over 64-byte records, which is why the vectors in test_data/vectors/merkle/trees.json transfer to it unchanged."
+    }
+  },
+  "cases": [
+    {
+      "name": "empty_payload_empty_metadata",
+      "payload_utf8": "",
+      "payload_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "payload_hash_derivation": "SHA256(payload_utf8 encoded as UTF-8)",
+      "metadata": {},
+      "metadata_canonical_jcs": "{}",
+      "metadata_hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "metadata_hash_derivation": "SHA256(metadata_canonical_jcs encoded as UTF-8)",
+      "leaf_hash": "46edac68b2989d00c9b4a756279e235b7193d5f591cbc15653cf722683356098",
+      "leaf_hash_derivation": "SHA256(0x00 || payload_hash || metadata_hash)",
+      "origin": "atl-spec-derived"
+    },
+    {
+      "name": "ascii_payload_flat_metadata",
+      "payload_utf8": "hello world",
+      "payload_hash": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+      "payload_hash_derivation": "SHA256(payload_utf8 encoded as UTF-8)",
+      "metadata": {
+        "b": 2,
+        "a": 1
+      },
+      "metadata_canonical_jcs": "{\"a\":1,\"b\":2}",
+      "metadata_hash": "43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777",
+      "metadata_hash_derivation": "SHA256(metadata_canonical_jcs encoded as UTF-8)",
+      "leaf_hash": "419fe8e3a62f560fdcad1800105a5ece4b84c744f8f38be592b8676a576b6797",
+      "leaf_hash_derivation": "SHA256(0x00 || payload_hash || metadata_hash)",
+      "origin": "atl-spec-derived"
+    },
+    {
+      "name": "spec_string_payload_nested_metadata",
+      "payload_utf8": "ATL Protocol v2.0",
+      "payload_hash": "bfdc0684ac311fe5bb76148bb925699ff66be7d5be48384cd12423b0b3fe5b8a",
+      "payload_hash_derivation": "SHA256(payload_utf8 encoded as UTF-8)",
+      "metadata": {
+        "source": {
+          "kind": "sensor",
+          "id": 7
+        },
+        "tags": [
+          "a",
+          "b"
+        ],
+        "seq": 42
+      },
+      "metadata_canonical_jcs": "{\"seq\":42,\"source\":{\"id\":7,\"kind\":\"sensor\"},\"tags\":[\"a\",\"b\"]}",
+      "metadata_hash": "7f96f3aaec4f3879dc24992ba4fa8be7bfc08f2a8dc5691a97fc84e274f7b0e6",
+      "metadata_hash_derivation": "SHA256(metadata_canonical_jcs encoded as UTF-8)",
+      "leaf_hash": "bcf70ad850415f47c54d48521f3a8cc49663a9273e53c3792e90b45dd0a3b5a1",
+      "leaf_hash_derivation": "SHA256(0x00 || payload_hash || metadata_hash)",
+      "origin": "atl-spec-derived"
+    },
+    {
+      "name": "unicode_keys_metadata",
+      "payload_utf8": "📄",
+      "payload_hash": "8bec5de10ecaf9875ef67d4645a120a2546cbafea2b0abb25e8a9eacc12f6630",
+      "payload_hash_derivation": "SHA256(payload_utf8 encoded as UTF-8)",
+      "metadata": {
+        "€": "euro",
+        "\r": "cr",
+        "1": "one",
+        "ö": "oe"
+      },
+      "metadata_canonical_jcs": "{\"\\r\":\"cr\",\"1\":\"one\",\"ö\":\"oe\",\"€\":\"euro\"}",
+      "metadata_hash": "3e8434d3854f9f121d52e601013c7054fc9a4b3f4caf23984e5516371b0c6242",
+      "metadata_hash_derivation": "SHA256(metadata_canonical_jcs encoded as UTF-8)",
+      "leaf_hash": "75abff1f4e538fc973cd7e7562ffb92cf0a613643484d015b499193fdf05f9bc",
+      "leaf_hash_derivation": "SHA256(0x00 || payload_hash || metadata_hash)",
+      "origin": "atl-spec-derived"
+    },
+    {
+      "name": "boundary_all_zero",
+      "payload_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "metadata_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "leaf_hash": "98ce42deef51d40269d542f5314bef2c7468d401ad5d85168bfab4c0108f75f7",
+      "leaf_hash_derivation": "SHA256(0x00 || payload_hash || metadata_hash)",
+      "origin": "atl-spec-derived",
+      "note": "No payload or metadata preimage; exercises the composition formula and its argument order only. `boundary_asymmetric` differs from a hypothetical swapped-argument implementation and so pins the order down."
+    },
+    {
+      "name": "boundary_all_ff",
+      "payload_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "metadata_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "leaf_hash": "5f407a3fc20b5783442909e52e7d62e0251720fdd9249d9bddcd64db7cf2fe96",
+      "leaf_hash_derivation": "SHA256(0x00 || payload_hash || metadata_hash)",
+      "origin": "atl-spec-derived",
+      "note": "No payload or metadata preimage; exercises the composition formula and its argument order only. `boundary_asymmetric` differs from a hypothetical swapped-argument implementation and so pins the order down."
+    },
+    {
+      "name": "boundary_asymmetric",
+      "payload_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "metadata_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "leaf_hash": "28faa4fcbf3afa2d26bed8146393e0accebefb426a63745940646cf0ef2b8fb0",
+      "leaf_hash_derivation": "SHA256(0x00 || payload_hash || metadata_hash)",
+      "origin": "atl-spec-derived",
+      "note": "No payload or metadata preimage; exercises the composition formula and its argument order only. `boundary_asymmetric` differs from a hypothetical swapped-argument implementation and so pins the order down."
+    }
+  ],
+  "genesis_chain_leaf_moved_out": "The genesis chain leaf (compute_genesis_leaf_hash / \"ATL-CHAIN-v1\") used to be recorded here. It was moved to test_data/implementation_only/genesis_chain_leaf.json, outside test_data/vectors/ entirely, because the construction has no first source in atl-protocol-ietf.md: an independent SHA-256 can confirm its arithmetic but nothing can confirm its contract, so it cannot serve as a conformance reference the way every value in this file can."
+}

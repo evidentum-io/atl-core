@@ -1,0 +1,34 @@
+{
+  "THIS_IS_NOT_A_CONFORMANCE_VECTOR": "Read this before using anything in this file. These values are NOT a reference another implementation can be checked against, and this file deliberately lives outside test_data/vectors/ for that reason.",
+  "description": "Regression pin on the arithmetic of atl_core::compute_genesis_leaf_hash. It fixes what the function computes today so that a change to it cannot pass unnoticed. That is all it does.",
+  "why_it_is_separated": {
+    "no_first_source": "The domain string \"ATL-CHAIN-v1\", the composition SHA256(0x00 || domain || prev_root_hash || prev_tree_size), and the little-endian encoding of the size appear nowhere in atl-protocol-ietf.md. compute_genesis_leaf_hash and GENESIS_DOMAIN are public API of atl-core, but no specification defines what they are supposed to be.",
+    "why_that_disqualifies_it": "Every other vector in this repository is checkable against something outside atl-core: an RFC's own text, a published reference set, or a named specification clause plus a formula. This one is not. Its formula was transcribed from the atl-core doc comment, so an independent SHA-256 confirms the ARITHMETIC but nothing confirms the CONTRACT. A third-party implementer has no document to implement it from, and matching these hashes would only mean they copied atl-core.",
+    "why_it_is_kept_anyway": "A pin that says plainly what it is still catches an accidental change to a public function. What it must never do is sit in test_data/vectors/ where a reader looking for an external reference would take it for one -- that is the same failure as the \"root\": \"computed\" placeholders this vector work replaced, merely labelled more honestly.",
+    "how_to_promote_it": "Either the construction goes into the protocol specification, after which these values can be re-derived from the spec clause and moved into test_data/vectors/atl/, or the API is marked non-protocol in its own doc comment and this file stays where it is."
+  },
+  "formula_transcribed_from": "src/core/merkle/crypto.rs, doc comment of compute_genesis_leaf_hash -- NOT a specification",
+  "cases": [
+    {
+      "prev_root_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "prev_tree_size": 0,
+      "genesis_leaf_hash": "04ed197286112ecebaa31c62236e234538d4b80a12982258dd18b29dd54fb6fc",
+      "derivation": "SHA256(0x00 || \"ATL-CHAIN-v1\" || prev_root_hash || prev_tree_size as little-endian u64)",
+      "origin": "implementation-doc-derived"
+    },
+    {
+      "prev_root_hash": "abababababababababababababababababababababababababababababababab",
+      "prev_tree_size": 1000,
+      "genesis_leaf_hash": "793bf2dc8e239d00429657c8bf24211ff6a00956f0f8f8586f5e0f11ca73f5f2",
+      "derivation": "SHA256(0x00 || \"ATL-CHAIN-v1\" || prev_root_hash || prev_tree_size as little-endian u64)",
+      "origin": "implementation-doc-derived"
+    },
+    {
+      "prev_root_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "prev_tree_size": 18446744073709551615,
+      "genesis_leaf_hash": "2d51be1b62ae0c7fa1831d0c5b2acd0745b244b41028ede3e08b94379fa2cc63",
+      "derivation": "SHA256(0x00 || \"ATL-CHAIN-v1\" || prev_root_hash || prev_tree_size as little-endian u64)",
+      "origin": "implementation-doc-derived"
+    }
+  ]
+}
