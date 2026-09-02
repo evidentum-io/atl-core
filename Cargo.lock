@@ -42,7 +42,7 @@ checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
 name = "atl-core"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "base64",
  "bitcoin_hashes",
@@ -57,6 +57,7 @@ dependencies = [
  "p384",
  "proptest",
  "rsa",
+ "ryu-js",
  "serde",
  "serde_json",
  "sha1",
@@ -64,6 +65,7 @@ dependencies = [
  "signature",
  "spki",
  "subtle",
+ "syn 2.0.119",
  "thiserror",
  "uuid",
  "x509-cert",
@@ -1221,6 +1223,12 @@ dependencies = [
  "tempfile",
  "wait-timeout",
 ]
+
+[[package]]
+name = "ryu-js"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04d056b875a9d2e6cb9a61d127afee9ac5999b9f87bcb32079d1318e505be714"
 
 [[package]]
 name = "salsa20"

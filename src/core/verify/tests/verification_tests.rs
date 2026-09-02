@@ -4,6 +4,8 @@ use super::super::helpers::{reconstruct_leaf_hash, verify_anchor, verify_inclusi
 use crate::core::checkpoint::{Checkpoint, CheckpointJson, CheckpointVerifier};
 use crate::core::jcs::canonicalize_and_hash;
 use crate::core::merkle::compute_leaf_hash;
+use crate::core::receipt::test_support::tamper;
+use crate::core::receipt::ReceiptBuilder;
 use crate::core::receipt::{
     format_hash, format_signature, Receipt, ReceiptAnchor, ReceiptEntry, ReceiptProof, SuperProof,
 };
@@ -27,7 +29,8 @@ fn create_test_receipt() -> (Receipt, [u8; 32], SigningKey) {
     // Create entry
     let payload_hash = [0xAAu8; 32];
     let metadata = json!({"test": "metadata"});
-    let metadata_hash = canonicalize_and_hash(&metadata);
+    let metadata_hash =
+        canonicalize_and_hash(&metadata).expect("metadata satisfies RFC 8785 Section 3.1");
     let leaf_hash = compute_leaf_hash(&payload_hash, &metadata_hash);
 
     // Single leaf tree: root = leaf
@@ -47,18 +50,19 @@ fn create_test_receipt() -> (Receipt, [u8; 32], SigningKey) {
     checkpoint.signature = signature.to_bytes();
 
     // Create receipt
-    let metadata_hash = format_hash(&canonicalize_and_hash(&metadata));
+    let metadata_hash = format_hash(
+        &canonicalize_and_hash(&metadata).expect("metadata satisfies RFC 8785 Section 3.1"),
+    );
 
-    let receipt = Receipt {
-        spec_version: "2.0.0".to_string(),
-        upgrade_url: None,
-        entry: ReceiptEntry {
+    let receipt = ReceiptBuilder::new(
+        "2.0.0".to_string(),
+        ReceiptEntry {
             id: Uuid::nil(),
             payload_hash: format_hash(&payload_hash),
             metadata_hash,
             metadata,
         },
-        proof: ReceiptProof {
+        ReceiptProof {
             leaf_index: 0,
             tree_size: 1,
             root_hash: format_hash(&root_hash),
@@ -73,16 +77,20 @@ fn create_test_receipt() -> (Receipt, [u8; 32], SigningKey) {
             },
             consistency_proof: None,
         },
-        super_proof: Some(SuperProof {
-            genesis_super_root: format_hash(&root_hash),
-            data_tree_index: 0,
-            super_tree_size: 1,
-            super_root: format_hash(&root_hash),
-            inclusion: vec![],
-            consistency_to_origin: vec![],
-        }),
-        anchors: vec![],
-    };
+    )
+    .super_proof_option(Some(SuperProof {
+        genesis_super_root: format_hash(&root_hash),
+        data_tree_index: 0,
+        super_tree_size: 1,
+        super_root: format_hash(&root_hash),
+        inclusion: vec![],
+        consistency_to_origin: vec![],
+    }))
+    .anchors(vec![])
+    .upgrade_url_option(None)
+    .build(
+        crate::core::receipt::SourceTextCheck::assume_duplicate_property_names_already_rejected(),
+    );
 
     (receipt, verifying_key.to_bytes(), signing_key)
 }
@@ -100,8 +108,8 @@ fn test_valid_receipt_passes() {
 
 #[test]
 fn test_tampered_payload_hash_fails() {
-    let (mut receipt, public_key, _) = create_test_receipt();
-    receipt.entry.payload_hash = format_hash(&[0xFFu8; 32]);
+    let (receipt, public_key, _) = create_test_receipt();
+    let receipt = tamper(&receipt, |p| p.entry.payload_hash = format_hash(&[0xFFu8; 32]));
 
     let result = verify_receipt_with_key(&receipt, &public_key).unwrap();
 
@@ -111,8 +119,8 @@ fn test_tampered_payload_hash_fails() {
 
 #[test]
 fn test_tampered_metadata_fails() {
-    let (mut receipt, public_key, _) = create_test_receipt();
-    receipt.entry.metadata = json!({"tampered": true});
+    let (receipt, public_key, _) = create_test_receipt();
+    let receipt = tamper(&receipt, |p| p.entry.metadata = json!({"tampered": true}));
 
     let result = verify_receipt_with_key(&receipt, &public_key).unwrap();
 
@@ -122,12 +130,12 @@ fn test_tampered_metadata_fails() {
 
 #[test]
 fn test_tampered_signature_fails() {
-    let (mut receipt, public_key, _) = create_test_receipt();
+    let (receipt, public_key, _) = create_test_receipt();
 
     // Tamper with signature
     let mut sig_bytes = [0u8; 64];
     sig_bytes[0] = 0xFF;
-    receipt.proof.checkpoint.signature = format_signature(&sig_bytes);
+    let receipt = tamper(&receipt, |p| p.proof.checkpoint.signature = format_signature(&sig_bytes));
 
     let result = verify_receipt_with_key(&receipt, &public_key).unwrap();
 
@@ -148,8 +156,8 @@ fn test_wrong_public_key_fails() {
 
 #[test]
 fn test_root_hash_mismatch_detected() {
-    let (mut receipt, public_key, _) = create_test_receipt();
-    receipt.proof.root_hash = format_hash(&[0xCCu8; 32]);
+    let (receipt, public_key, _) = create_test_receipt();
+    let receipt = tamper(&receipt, |p| p.proof.root_hash = format_hash(&[0xCCu8; 32]));
     // checkpoint.root_hash is different
 
     let result = verify_receipt_with_key(&receipt, &public_key).unwrap();
@@ -160,8 +168,8 @@ fn test_root_hash_mismatch_detected() {
 
 #[test]
 fn test_tree_size_mismatch_detected() {
-    let (mut receipt, public_key, _) = create_test_receipt();
-    receipt.proof.tree_size = 999;
+    let (receipt, public_key, _) = create_test_receipt();
+    let receipt = tamper(&receipt, |p| p.proof.tree_size = 999);
     // checkpoint.tree_size is different (1)
 
     let result = verify_receipt_with_key(&receipt, &public_key).unwrap();
@@ -174,7 +182,8 @@ fn test_tree_size_mismatch_detected() {
 fn test_verify_inclusion_only() {
     let payload_hash = [1u8; 32];
     let metadata = json!({"key": "value"});
-    let metadata_hash = canonicalize_and_hash(&metadata);
+    let metadata_hash =
+        canonicalize_and_hash(&metadata).expect("metadata satisfies RFC 8785 Section 3.1");
     let leaf_hash = compute_leaf_hash(&payload_hash, &metadata_hash);
 
     // Single leaf tree: root = leaf
@@ -185,7 +194,8 @@ fn test_verify_inclusion_only() {
         0,          // leaf_index
         1,          // tree_size
         &leaf_hash, // root == leaf for single entry
-    );
+    )
+    .expect("test metadata is canonicalizable");
 
     assert!(result);
 }
@@ -320,7 +330,8 @@ fn test_reconstruct_leaf_hash() {
 
     let payload_hash = [0xAAu8; 32];
     let metadata = json!({"test": "value"});
-    let computed_metadata_hash = canonicalize_and_hash(&metadata);
+    let computed_metadata_hash =
+        canonicalize_and_hash(&metadata).expect("metadata satisfies RFC 8785 Section 3.1");
 
     let payload_hash_str = format_hash(&payload_hash);
     let metadata_hash_str = format_hash(&computed_metadata_hash);
@@ -331,12 +342,132 @@ fn test_reconstruct_leaf_hash() {
     assert_eq!(leaf_hash.len(), 32);
 }
 
+// ========== Untrusted, not invalid ==========
+
+/// Rebuild a receipt with unchecked provenance — what every non-text path
+/// (`serde_json::from_value` above all) produces.
+///
+/// It goes through `Receipt::new` because there is no other way: the marker is
+/// a private field precisely so it cannot be assigned across from a receipt
+/// that *was* checked.
+fn with_unchecked_provenance(receipt: &Receipt) -> Receipt {
+    ReceiptBuilder::new(
+        receipt.spec_version().to_string(),
+        receipt.entry().clone(),
+        receipt.proof().clone(),
+    )
+    .anchors(receipt.anchors().to_vec())
+    .super_proof_option(receipt.super_proof().cloned())
+    .build(crate::core::receipt::SourceTextCheck::default())
+}
+
+/// **The distinction this class of error exists for.** A receipt whose source
+/// bytes were never examined for duplicate property names has not been shown to
+/// be wrong; RFC 8785 Section 3.1's prohibition is a property of a byte stream,
+/// and once JSON is parsed it is unknowable. Confirming such a receipt asserts
+/// a constraint nobody checked; refuting it asserts a defect nobody found.
+#[test]
+fn test_receipt_of_unchecked_provenance_is_unverified_not_refuted() {
+    let (receipt, public_key, _) = create_test_receipt();
+    let receipt = with_unchecked_provenance(&receipt);
+
+    let verifier = ReceiptVerifier::with_key_and_options(
+        CheckpointVerifier::from_bytes(&public_key).unwrap(),
+        VerifyOptions::default(),
+    );
+    let result = verifier.verify(&receipt);
+
+    assert!(!result.is_valid(), "unchecked provenance may never be confirmed");
+    assert!(
+        result.is_indeterminate(),
+        "the receipt was not evaluated, and must not be reported as refuted"
+    );
+    assert!(
+        result.errors().iter().all(|e| !e.is_refutation()),
+        "no error here is evidence against the receipt: {:?}",
+        result.errors()
+    );
+    assert!(result.errors().iter().any(|e| matches!(e, VerificationError::SourceTextNotChecked)));
+}
+
+/// Everything else about the receipt still verifies — provenance gates the
+/// verdict, it does not short-circuit the diagnostics.
+#[test]
+fn test_unchecked_provenance_still_reports_every_other_finding() {
+    let (receipt, public_key, _) = create_test_receipt();
+    let receipt = with_unchecked_provenance(&receipt);
+
+    let verifier = ReceiptVerifier::with_key_and_options(
+        CheckpointVerifier::from_bytes(&public_key).unwrap(),
+        VerifyOptions::default(),
+    );
+    let result = verifier.verify(&receipt);
+
+    assert!(result.inclusion_valid, "the inclusion proof was still checked");
+    assert_eq!(result.signature_status, SignatureStatus::Verified);
+}
+
+/// Vouching for the bytes lifts the gate, and nothing else changes.
+#[test]
+fn test_vouching_for_the_source_bytes_restores_confirmation() {
+    let (receipt, public_key, _) = create_test_receipt();
+    assert!(receipt.source_text_was_checked(), "the helper vouches");
+
+    let verifier = ReceiptVerifier::with_key_and_options(
+        CheckpointVerifier::from_bytes(&public_key).unwrap(),
+        VerifyOptions::default(),
+    );
+    let result = verifier.verify(&receipt);
+
+    assert!(!result.errors().iter().any(|e| matches!(e, VerificationError::SourceTextNotChecked)));
+}
+
+/// A genuine `metadata_hash` mismatch is still a refutation, so the test above
+/// is a distinction and not a blanket rule.
+#[test]
+fn test_a_real_metadata_hash_mismatch_is_still_a_refutation() {
+    let (receipt, public_key, _) = create_test_receipt();
+    let receipt = tamper(&receipt, |p| p.entry.metadata = json!({"tampered": true}));
+
+    let verifier = ReceiptVerifier::with_key_and_options(
+        CheckpointVerifier::from_bytes(&public_key).unwrap(),
+        VerifyOptions::default(),
+    );
+    let result = verifier.verify(&receipt);
+
+    assert!(!result.is_valid());
+    assert!(!result.is_indeterminate(), "this one really is refuted");
+    assert!(matches!(result.first_error(), Some(VerificationError::MetadataHashMismatch { .. })));
+    assert!(result.first_error().unwrap().is_refutation());
+}
+
+/// `MetadataNotCanonicalizable` has no reachable trigger in a default build:
+/// numbers are normalized rather than refused, and a `Value` cannot hold a
+/// non-finite double. It is kept because
+/// `serde_json/arbitrary_precision` — which any dependent can switch on by
+/// feature unification — makes `Number::as_f64` return `None`, and because
+/// deleting it would force `reconstruct_leaf_hash` to fold "could not compute"
+/// back into "hash mismatch", which is the collapse this class of error exists
+/// to prevent. Its classification is therefore pinned directly.
+#[test]
+fn test_metadata_not_canonicalizable_is_classified_as_an_inability() {
+    let err = VerificationError::MetadataNotCanonicalizable {
+        path: "/entry/metadata/amount".to_string(),
+        reason: "no double to serialize".to_string(),
+    };
+
+    assert!(!err.is_refutation(), "an inability to compute refutes nothing");
+    assert!(err.to_string().contains("/entry/metadata/amount"));
+    assert!(!matches!(err, VerificationError::MetadataHashMismatch { .. }));
+}
+
 #[test]
 fn test_reconstruct_leaf_hash_invalid_format() {
     use crate::core::jcs::canonicalize_and_hash;
 
     let metadata = json!({"test": "value"});
-    let computed_metadata_hash = canonicalize_and_hash(&metadata);
+    let computed_metadata_hash =
+        canonicalize_and_hash(&metadata).expect("metadata satisfies RFC 8785 Section 3.1");
     let metadata_hash_str = format_hash(&computed_metadata_hash);
 
     let result = reconstruct_leaf_hash("invalid_hash", &metadata_hash_str, &metadata);
@@ -427,7 +558,8 @@ fn test_verify_inclusion_only_zero_tree_size() {
         0,
         0, // Invalid tree size
         &[0u8; 32],
-    );
+    )
+    .expect("test metadata is canonicalizable");
     assert!(!result);
 }
 
@@ -444,7 +576,8 @@ fn test_verify_inclusion_only_index_out_of_bounds() {
         10, // Index
         5,  // Tree size (index >= size)
         &[0u8; 32],
-    );
+    )
+    .expect("test metadata is canonicalizable");
     assert!(!result);
 }
 

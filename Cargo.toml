@@ -1,6 +1,6 @@
 [package]
 name = "atl-core"
-version = "0.27.0"
+version = "0.28.0"
 edition = "2021"
 rust-version = "1.92.0"
 authors = ["Dmitrii Zatona <dmitrii@zatona.dev>"]
@@ -18,7 +18,24 @@ categories = ["cryptography", "data-structures"]
 sha2 = { version = "0.10", features = ["oid"] }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# `float_roundtrip` is protocol-relevant, not a tuning knob. ATL hashes entry
+# metadata as SHA-256(JCS(metadata)), so the double a JSON number literal
+# parses to is part of the hash preimage. serde_json's default number parser
+# is a best-effort f64 fast path that lands one ULP away from the correctly
+# rounded value for roughly 30% of arbitrary doubles -- including the RFC 8785
+# Section 3.2.2 worked example, `333333333.33333329`. `float_roundtrip` selects
+# the correctly rounded parser, which is what RFC 8785 Section 3.2.2.3 requires
+# by building on IEEE 754 double precision. The floor is the version this was
+# verified against; the feature itself is much older.
+serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
+# ECMA-262 Section 7.1.12.1 `Number::toString`, which RFC 8785 Section 3.2.2.3
+# mandates verbatim ("including the Note 2 enhancement"). Rust's own `f64`
+# Display is *not* that algorithm: it never switches to exponential notation
+# and it breaks shortest-digit ties away from zero rather than to even. Both
+# are protocol-visible differences, so the number formatter is pinned to a
+# crate whose documented contract is the ECMAScript algorithm rather than to
+# a std formatter that only promises round-tripping.
+ryu-js = "1"
 uuid = { version = "1", features = ["serde"] }
 thiserror = "1"
 hex = "0.4"
@@ -49,8 +66,17 @@ signature = { version = "2", optional = true }
 bitcoin_hashes = { version = "0.14", optional = true }
 
 [dev-dependencies]
+hex = "0.4"
 proptest = "1"
 criterion = "0.5"
+# Parses `src/core/receipt.rs` in `tests/lib_exports_tests.rs` to enforce an
+# invariant the type system cannot express: no method on `Receipt` may take a
+# receiver and return a `Receipt`. The predecessor of that check was a
+# line-by-line text scan, which `rustfmt` defeats on any signature long enough
+# to be split across lines, and which never looked at trait impls at all. Real
+# syntax rather than guessing at strings. Dev-only: it is not in the dependency
+# graph of anything that links `atl-core`.
+syn = { version = "2", default-features = false, features = ["full", "parsing", "visit"] }
 
 [features]
 default = ["rfc3161-verify", "bitcoin-ots"]
@@ -69,6 +95,23 @@ rfc3161-verify = [
     "dep:signature",
 ]
 bitcoin-ots = ["dep:bitcoin_hashes"]
+
+# Audit-only. Turns on `serde_json/arbitrary_precision` so the test suite can be
+# run in the configuration a consumer can impose on this crate without asking:
+# Cargo unifies features across the whole graph, so any crate anywhere in a
+# dependent's tree that wants arbitrary precision switches it on here too.
+#
+# In that mode `serde_json` represents numbers as a map keyed by the private
+# token `$serde_json::private::Number`, and `Number::as_f64` re-parses the
+# stored text instead of returning a stored double. Both are protocol-visible:
+# the first breaks any hand-written `Deserialize` for `Value` (which is why this
+# crate has none), and the second is what `jcs::format_number` stands on.
+#
+# `tests/arbitrary_precision_audit.rs` pins canonical forms and `metadata_hash`
+# values as literal constants, so running the suite with and without this
+# feature proves byte-identity rather than merely self-consistency. Never enable
+# it for a real build; it is not a supported configuration knob.
+arbitrary-precision-audit = ["serde_json/arbitrary_precision"]
 
 [[bench]]
 name = "merkle_bench"

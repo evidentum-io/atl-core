@@ -32,9 +32,11 @@ pub use crate::core::receipt::{
     is_supported_spec_version,
     Receipt,
     ReceiptAnchor,
+    ReceiptBuilder,
     ReceiptEntry,
     ReceiptProof,
     ReceiptTier, // Mandatory in v2.0
+    SourceTextCheck,
     SuperProof,
     RECEIPT_SPEC_VERSION,
 };
@@ -80,7 +82,7 @@ pub use crate::core::checkpoint::{Checkpoint, CheckpointVerifier};
 pub use crate::core::merkle::{verify_consistency, verify_inclusion, Hash};
 
 // Convenience functions
-pub use crate::core::jcs::{canonicalize, canonicalize_and_hash};
+pub use crate::core::jcs::{canonicalize, canonicalize_and_hash, check_unique_property_names};
 pub use crate::core::merkle::compute_leaf_hash;
 
 // Version constants

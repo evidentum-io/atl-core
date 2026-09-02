@@ -420,14 +420,14 @@ pub fn verify_cross_receipts(
     };
 
     // Both receipts MUST have super_proof for cross-verification
-    let Some(super_proof_a) = &receipt_a.super_proof else {
+    let Some(super_proof_a) = &receipt_a.super_proof() else {
         result.errors.push(
             "Receipt A has no super_proof (Receipt-Lite cannot be cross-verified)".to_string(),
         );
         return result;
     };
 
-    let Some(super_proof_b) = &receipt_b.super_proof else {
+    let Some(super_proof_b) = &receipt_b.super_proof() else {
         result.errors.push(
             "Receipt B has no super_proof (Receipt-Lite cannot be cross-verified)".to_string(),
         );
@@ -831,7 +831,7 @@ mod consistency_tests {
 mod cross_receipt_tests {
     use super::*;
     use crate::core::checkpoint::CheckpointJson;
-    use crate::core::receipt::{Receipt, ReceiptEntry, ReceiptProof, SuperProof};
+    use crate::core::receipt::{Receipt, ReceiptBuilder, ReceiptEntry, ReceiptProof, SuperProof};
     use uuid::Uuid;
 
     fn make_test_hash(byte: u8) -> String {
@@ -843,18 +843,16 @@ mod cross_receipt_tests {
         use crate::core::receipt::format_hash as fmt_hash;
 
         let metadata = serde_json::json!({});
-        let metadata_hash = fmt_hash(&canonicalize_and_hash(&metadata));
+        let metadata_hash = fmt_hash(
+            &canonicalize_and_hash(&metadata).expect("metadata satisfies RFC 8785 Section 3.1"),
+        );
 
-        Receipt {
-            spec_version: "2.0.0".to_string(),
-            upgrade_url: None,
-            entry: ReceiptEntry {
+        ReceiptBuilder::new("2.0.0".to_string(), ReceiptEntry {
                 id: Uuid::nil(),
                 payload_hash: make_test_hash(0xcc),
                 metadata_hash,
                 metadata,
-            },
-            proof: ReceiptProof {
+            }, ReceiptProof {
                 tree_size: 1,
                 root_hash: make_test_hash(genesis),
                 inclusion_path: vec![],
@@ -868,17 +866,14 @@ mod cross_receipt_tests {
                     key_id: make_test_hash(0xee),
                 },
                 consistency_proof: None,
-            },
-            super_proof: Some(SuperProof {
+            }).super_proof_option(Some(SuperProof {
                 genesis_super_root: make_test_hash(genesis),
                 data_tree_index: index,
                 super_tree_size: size,
                 super_root: make_test_hash(genesis), // Simplified for size 1
                 inclusion: vec![],
                 consistency_to_origin: vec![],
-            }),
-            anchors: vec![],
-        }
+            })).anchors(vec![]).upgrade_url_option(None).build(crate::core::receipt::SourceTextCheck::assume_duplicate_property_names_already_rejected())
     }
 
     #[test]
@@ -951,10 +946,12 @@ mod cross_receipt_tests {
 
     #[test]
     fn test_cross_receipt_invalid_genesis_format() {
-        let mut receipt_a = make_v2_receipt_with_super_proof(0xaa, 5, 10);
-        if let Some(ref mut sp) = receipt_a.super_proof {
-            sp.genesis_super_root = "invalid".to_string();
-        }
+        let receipt_a = make_v2_receipt_with_super_proof(0xaa, 5, 10);
+        let receipt_a = crate::core::receipt::test_support::tamper(&receipt_a, |p| {
+            if let Some(sp) = p.super_proof.as_mut() {
+                sp.genesis_super_root = "invalid".to_string();
+            }
+        });
 
         let receipt_b = make_v2_receipt_with_super_proof(0xaa, 8, 15);
 
@@ -1455,7 +1452,7 @@ mod consistency_to_origin_tests {
 mod cross_receipt_verification_tests {
     use super::*;
     use crate::core::checkpoint::CheckpointJson;
-    use crate::core::receipt::{Receipt, ReceiptEntry, ReceiptProof, SuperProof};
+    use crate::core::receipt::{Receipt, ReceiptBuilder, ReceiptEntry, ReceiptProof, SuperProof};
     use std::cmp::Ordering;
     use uuid::Uuid;
 
@@ -1470,7 +1467,9 @@ mod cross_receipt_verification_tests {
         use crate::core::receipt::format_hash as fmt_hash;
 
         let metadata = serde_json::json!({});
-        let metadata_hash = fmt_hash(&canonicalize_and_hash(&metadata));
+        let metadata_hash = fmt_hash(
+            &canonicalize_and_hash(&metadata).expect("metadata satisfies RFC 8785 Section 3.1"),
+        );
 
         ReceiptEntry { id: Uuid::nil(), payload_hash: make_hash(0x11), metadata_hash, metadata }
     }
@@ -1505,14 +1504,14 @@ mod cross_receipt_verification_tests {
     }
 
     fn make_receipt_full(genesis_byte: u8, index: u64, size: u64) -> Receipt {
-        Receipt {
-            spec_version: "2.0.0".to_string(),
-            upgrade_url: None,
-            entry: make_receipt_entry(),
-            proof: make_receipt_proof(),
-            super_proof: Some(make_super_proof(genesis_byte, index, size)),
-            anchors: vec![],
-        }
+        ReceiptBuilder::new(
+            "2.0.0".to_string(),
+            make_receipt_entry(),
+            make_receipt_proof())
+        .super_proof_option(Some(make_super_proof(genesis_byte, index, size)))
+        .anchors(vec![])
+        .upgrade_url_option(None).build(crate::core::receipt::SourceTextCheck::assume_duplicate_property_names_already_rejected(
+            ))
     }
 
     // NOTE: Cannot create receipt without super_proof - it's a mandatory field
@@ -1623,10 +1622,12 @@ mod cross_receipt_verification_tests {
 
     #[test]
     fn test_cross_receipt_invalid_genesis_format_a() {
-        let mut receipt_a = make_receipt_full(0xaa, 5, 10);
-        if let Some(ref mut sp) = receipt_a.super_proof {
-            sp.genesis_super_root = "invalid".to_string();
-        }
+        let receipt_a = make_receipt_full(0xaa, 5, 10);
+        let receipt_a = crate::core::receipt::test_support::tamper(&receipt_a, |p| {
+            if let Some(sp) = p.super_proof.as_mut() {
+                sp.genesis_super_root = "invalid".to_string();
+            }
+        });
 
         let receipt_b = make_receipt_full(0xaa, 8, 15);
 
@@ -1640,10 +1641,12 @@ mod cross_receipt_verification_tests {
     fn test_cross_receipt_invalid_genesis_format_b() {
         let receipt_a = make_receipt_full(0xaa, 5, 10);
 
-        let mut receipt_b = make_receipt_full(0xaa, 8, 15);
-        if let Some(ref mut sp) = receipt_b.super_proof {
-            sp.genesis_super_root = "md5:abc".to_string();
-        }
+        let receipt_b = make_receipt_full(0xaa, 8, 15);
+        let receipt_b = crate::core::receipt::test_support::tamper(&receipt_b, |p| {
+            if let Some(sp) = p.super_proof.as_mut() {
+                sp.genesis_super_root = "md5:abc".to_string();
+            }
+        });
 
         let result = verify_cross_receipts(&receipt_a, &receipt_b);
 
@@ -1653,10 +1656,12 @@ mod cross_receipt_verification_tests {
 
     #[test]
     fn test_cross_receipt_invalid_genesis_wrong_length() {
-        let mut receipt_a = make_receipt_full(0xaa, 5, 10);
-        if let Some(ref mut sp) = receipt_a.super_proof {
-            sp.genesis_super_root = "sha256:aabbcc".to_string(); // Too short
-        }
+        let receipt_a = make_receipt_full(0xaa, 5, 10);
+        let receipt_a = crate::core::receipt::test_support::tamper(&receipt_a, |p| {
+            if let Some(sp) = p.super_proof.as_mut() {
+                sp.genesis_super_root = "sha256:aabbcc".to_string(); // Too short
+            }
+        });
 
         let receipt_b = make_receipt_full(0xaa, 8, 15);
 
@@ -1787,15 +1792,19 @@ mod cross_receipt_verification_tests {
 
     #[test]
     fn test_cross_receipt_with_consistency_proof() {
-        let mut receipt_a = make_receipt_full(0xaa, 5, 10);
-        if let Some(ref mut sp) = receipt_a.super_proof {
-            sp.consistency_to_origin = vec![make_hash(0xcc), make_hash(0xdd)];
-        }
+        let receipt_a = make_receipt_full(0xaa, 5, 10);
+        let receipt_a = crate::core::receipt::test_support::tamper(&receipt_a, |p| {
+            if let Some(sp) = p.super_proof.as_mut() {
+                sp.consistency_to_origin = vec![make_hash(0xcc), make_hash(0xdd)];
+            }
+        });
 
-        let mut receipt_b = make_receipt_full(0xaa, 8, 15);
-        if let Some(ref mut sp) = receipt_b.super_proof {
-            sp.consistency_to_origin = vec![make_hash(0xee), make_hash(0xff)];
-        }
+        let receipt_b = make_receipt_full(0xaa, 8, 15);
+        let receipt_b = crate::core::receipt::test_support::tamper(&receipt_b, |p| {
+            if let Some(sp) = p.super_proof.as_mut() {
+                sp.consistency_to_origin = vec![make_hash(0xee), make_hash(0xff)];
+            }
+        });
 
         let result = verify_cross_receipts(&receipt_a, &receipt_b);
 

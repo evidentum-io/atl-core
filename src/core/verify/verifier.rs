@@ -180,8 +180,8 @@ impl ReceiptVerifier {
             is_valid: false,
             leaf_hash: [0; 32],
             root_hash: [0; 32],
-            tree_size: receipt.proof.tree_size,
-            timestamp: receipt.proof.checkpoint.timestamp,
+            tree_size: receipt.proof().tree_size,
+            timestamp: receipt.proof().checkpoint.timestamp,
             signature_valid: false,
             signature_status: SignatureStatus::Skipped,
             inclusion_valid: false,
@@ -202,16 +202,18 @@ impl ReceiptVerifier {
         // here: this gate and the one in `Receipt::from_json` are two doors
         // into the same building, and an inlined literal in each is how they
         // came to disagree with a caller's own gate.
-        if !crate::core::receipt::is_supported_spec_version(&receipt.spec_version) {
-            result.errors.push(VerificationError::UnsupportedVersion(receipt.spec_version.clone()));
+        if !crate::core::receipt::is_supported_spec_version(receipt.spec_version()) {
+            result
+                .errors
+                .push(VerificationError::UnsupportedVersion(receipt.spec_version().to_string()));
             return result;
         }
 
         // STEP 1: Reconstruct Leaf Hash (with metadata_hash validation)
         match reconstruct_leaf_hash(
-            &receipt.entry.payload_hash,
-            &receipt.entry.metadata_hash,
-            &receipt.entry.metadata,
+            &receipt.entry().payload_hash,
+            &receipt.entry().metadata_hash,
+            &receipt.entry().metadata,
         ) {
             Ok(hash) => result.leaf_hash = hash,
             Err(e) => {
@@ -221,7 +223,7 @@ impl ReceiptVerifier {
         }
 
         // Parse root hash for result
-        if let Ok(root) = parse_hash(&receipt.proof.root_hash) {
+        if let Ok(root) = parse_hash(&receipt.proof().root_hash) {
             result.root_hash = root;
         } else {
             result.errors.push(VerificationError::InvalidHash {
@@ -232,19 +234,19 @@ impl ReceiptVerifier {
         }
 
         // Consistency check: checkpoint.root_hash == proof.root_hash
-        if receipt.proof.checkpoint.root_hash != receipt.proof.root_hash {
+        if receipt.proof().checkpoint.root_hash != receipt.proof().root_hash {
             result.errors.push(VerificationError::RootHashMismatch);
             return result;
         }
 
         // Consistency check: checkpoint.tree_size == proof.tree_size
-        if receipt.proof.checkpoint.tree_size != receipt.proof.tree_size {
+        if receipt.proof().checkpoint.tree_size != receipt.proof().tree_size {
             result.errors.push(VerificationError::TreeSizeMismatch);
             return result;
         }
 
         // STEP 2: Verify Inclusion
-        match verify_inclusion_proof(&result.leaf_hash, &receipt.proof) {
+        match verify_inclusion_proof(&result.leaf_hash, receipt.proof()) {
             Ok(true) => result.inclusion_valid = true,
             Ok(false) => {
                 result.errors.push(VerificationError::InclusionProofFailed {
@@ -257,11 +259,11 @@ impl ReceiptVerifier {
         }
 
         // STEP 3: Verify Signature (updated logic)
-        self.verify_signature_step(&receipt.proof.checkpoint, &mut result);
+        self.verify_signature_step(&receipt.proof().checkpoint, &mut result);
 
         // STEP 4: Verify Super-Tree Proof (if present)
-        if let Some(super_proof) = &receipt.super_proof {
-            Self::verify_super_proof(&mut result, &receipt.proof.root_hash, super_proof);
+        if let Some(super_proof) = &receipt.super_proof() {
+            Self::verify_super_proof(&mut result, &receipt.proof().root_hash, super_proof);
         } else {
             // No super_proof: Receipt-Lite
             // Mark as not verified (but not failed - just absent)
@@ -271,7 +273,7 @@ impl ReceiptVerifier {
         }
 
         // STEP 5: Verify Anchors (optional)
-        if !self.options.skip_anchors && !receipt.anchors.is_empty() {
+        if !self.options.skip_anchors && !receipt.anchors().is_empty() {
             // Create anchor verification context with both roots
             #[allow(unused_mut)]
             let mut anchor_context = crate::core::verify::helpers::AnchorVerificationContext::new(
@@ -285,7 +287,7 @@ impl ReceiptVerifier {
                 anchor_context = anchor_context.with_rfc3161_trust_store(store);
             }
 
-            for anchor in &receipt.anchors {
+            for anchor in receipt.anchors() {
                 let anchor_result = verify_anchor(anchor, &anchor_context);
                 result.anchor_results.push(anchor_result);
             }
@@ -314,9 +316,18 @@ impl ReceiptVerifier {
             result.errors.push(VerificationError::NoTrustAnchor);
         }
 
+        // The receipt's own bytes were never examined for RFC 8785 Section 3.1
+        // duplicate property names. Pushed after the trust-anchor check so it
+        // does not mask that diagnosis, and reported as an inability rather
+        // than a finding: nothing about the receipt was disproved.
+        let source_text_checked = receipt.source_text_was_checked();
+        if !source_text_checked {
+            result.errors.push(VerificationError::SourceTextNotChecked);
+        }
+
         // Compute final validity
-        result.is_valid =
-            Self::compute_validity(&result, &self.options, receipt.super_proof.is_some());
+        result.is_valid = source_text_checked
+            && Self::compute_validity(&result, &self.options, receipt.super_proof().is_some());
 
         result
     }

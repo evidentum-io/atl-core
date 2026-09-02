@@ -297,6 +297,45 @@ pub enum VerificationError {
         actual: String,
     },
 
+    /// The metadata has no RFC 8785 canonical form, so `metadata_hash` could
+    /// not be computed at all.
+    ///
+    /// **This is not [`Self::MetadataHashMismatch`], and the difference is the
+    /// whole reason the variant exists.** A mismatch is a refutation: the hash
+    /// was computed and it disagrees with the receipt. This is an *inability*:
+    /// the input breaks an RFC 8785 Section 3.1 constraint on canonicalization
+    /// input, so there is no byte string to hash and nothing was compared. The
+    /// receipt has not been shown to be wrong — it has not been checked.
+    ///
+    /// Reporting it as a mismatch would publish "this evidence is disproved"
+    /// on the strength of a computation that never ran. See
+    /// [`Self::is_refutation`].
+    MetadataNotCanonicalizable {
+        /// RFC 6901 JSON Pointer of the offending node, relative to the
+        /// receipt root (e.g. `/entry/metadata/claims/0/amount`).
+        path: String,
+        /// Which RFC 8785 Section 3.1 constraint was broken.
+        reason: String,
+    },
+
+    /// The receipt's source bytes were never checked for duplicate property
+    /// names, so it cannot be confirmed.
+    ///
+    /// **Not a finding against the receipt.** RFC 8785 Section 3.1's
+    /// prohibition on duplicate property names is a property of a byte stream;
+    /// once JSON is parsed the duplicate is gone and no inspection recovers it.
+    /// A `Receipt` that reached this crate through
+    /// [`serde_json::from_value`], or that was assembled structurally, carries
+    /// no record that its bytes were ever examined — and confirming it would
+    /// mean asserting a constraint nobody checked.
+    ///
+    /// The holder resolves this by vouching for the bytes with
+    /// [`SourceTextCheck::assume_duplicate_property_names_already_rejected`](crate::core::receipt::SourceTextCheck::assume_duplicate_property_names_already_rejected),
+    /// or by parsing through
+    /// [`Receipt::from_json`](crate::core::receipt::Receipt::from_json), which
+    /// performs the check. See [`Self::is_refutation`].
+    SourceTextNotChecked,
+
     /// No trust anchor available
     ///
     /// Verification found no source of trust:
@@ -378,6 +417,19 @@ impl std::fmt::Display for VerificationError {
             Self::MetadataHashMismatch { expected, actual } => {
                 write!(f, "Metadata hash mismatch: expected {expected}, got {actual}")
             }
+            Self::MetadataNotCanonicalizable { path, reason } => {
+                write!(
+                    f,
+                    "Metadata has no RFC 8785 canonical form, so metadata_hash could not be \
+                     computed (JSON Pointer {path:?}): {reason}"
+                )
+            }
+            Self::SourceTextNotChecked => write!(
+                f,
+                "Receipt source bytes were never checked for duplicate property names \
+                 (RFC 8785 Section 3.1): parse with Receipt::from_json, or vouch for the \
+                 bytes with SourceTextCheck::assume_duplicate_property_names_already_rejected"
+            ),
             Self::NoTrustAnchor => {
                 write!(
                     f,
@@ -388,11 +440,69 @@ impl std::fmt::Display for VerificationError {
     }
 }
 
+impl VerificationError {
+    /// Whether this error is evidence **against** the receipt.
+    ///
+    /// Three of the variants are not. They record that this verifier could
+    /// not finish, which is a fact about the verifier's reach, never a
+    /// finding about the document:
+    ///
+    /// * [`Self::UnsupportedVersion`] — the receipt is written to a revision
+    ///   this build has never implemented. Reporting it as defective would be
+    ///   asserting a verification performed under rules never read.
+    /// * [`Self::MetadataNotCanonicalizable`] — `metadata_hash` was never
+    ///   computed, so it was never contradicted.
+    /// * [`Self::NoTrustAnchor`] — nothing vouches for the checkpoint. The
+    ///   absence of trust material disproves nothing.
+    /// * [`Self::SourceTextNotChecked`] — the receipt's bytes were never
+    ///   examined for duplicate property names, which is unknowable once JSON
+    ///   has been parsed. Not knowing is not evidence.
+    ///
+    /// Every other variant is a genuine refutation: a hash that does not
+    /// match, a proof path that does not lead to the root, a signature that
+    /// fails, a field that cannot be a hash at all.
+    ///
+    /// This mirrors the distinction
+    /// [`PathStatus`](super::anchors::rfc3161::PathStatus) draws for RFC 3161
+    /// chains, where collapsing "could not check" into "invalid" is what once
+    /// made this crate publish refuted evidence about tokens nothing had
+    /// refuted.
+    #[must_use]
+    pub const fn is_refutation(&self) -> bool {
+        !matches!(
+            self,
+            Self::UnsupportedVersion(_)
+                | Self::MetadataNotCanonicalizable { .. }
+                | Self::SourceTextNotChecked
+                | Self::NoTrustAnchor
+        )
+    }
+}
+
 impl VerificationResult {
     /// Check if all critical verifications passed
     #[must_use]
     pub const fn is_valid(&self) -> bool {
         self.is_valid
+    }
+
+    /// Whether the receipt was left **unverified** rather than shown to be bad.
+    ///
+    /// `is_valid == false` alone does not distinguish "this receipt is
+    /// refuted" from "this build could not evaluate it". A caller that
+    /// displays a verdict must ask this before saying anything against the
+    /// receipt: when it is `true` and no error
+    /// [refutes](VerificationError::is_refutation) the document, the honest
+    /// report is *untrusted / not verified*, not *invalid*.
+    ///
+    /// Note this is only meaningful together with [`Self::is_valid`]: a result
+    /// can be indeterminate and still carry refutations, in which case the
+    /// refutations decide.
+    #[must_use]
+    pub fn is_indeterminate(&self) -> bool {
+        !self.is_valid
+            && !self.errors.is_empty()
+            && !self.errors.iter().any(VerificationError::is_refutation)
     }
 
     /// Check if at least one anchor was verified

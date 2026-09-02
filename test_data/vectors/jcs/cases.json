@@ -3,52 +3,19 @@
   "provenance": {
     "origins": {
       "rfc8785-published": "Verbatim from RFC 8785. The Section 3.2.2 / 3.2.3 worked example and its canonical output are additionally byte-checked against the hexadecimal dump the RFC prints in Section 3.2.4. The Appendix B rows are the RFC's own Table 1.",
-      "rfc8785-derived": "No published example covers this input; the expected output was written by reading the rule text in the cited section. Integer-only, so the ES6 floating-point algorithm of Section 3.2.2.3 is not involved and the expected value is decidable by inspection."
+      "rfc8785-derived": "No published example covers this input; the expected output was written by reading the rule text in the cited section. Integer-only, so the ES6 floating-point algorithm of Section 3.2.2.3 is not involved and the expected value is decidable by inspection.",
+      "rfc8785-input-constraint": "No published example covers this input either. RFC 8785 Section 3.1 states three MUST requirements on the data to be canonicalized, and Section 3.2.2.3 a fourth on NaN/Infinity; these cases record, for each, an input that breaks it and the fact that a conformant implementation must not return a canonical form for it. The expected OUTCOME is read off the rule text; where a case instead expects success, the `expected` string is the ECMA-262 Section 7.1.12.1 rendering the RFC mandates, decidable without running atl-core."
     },
     "not_generated_by_atl_core": "No expected value in this file was produced by running atl-core. The `conformance` field describes atl-core's current behaviour; the `expected` field never does."
   },
   "conformance_legend": {
     "pass": "atl-core produces the RFC-mandated output for this input.",
     "known_divergence": "atl-core does NOT produce the RFC-mandated output for this input. The RFC value is recorded unchanged in `expected`; it was deliberately not adjusted to match atl-core. `atl_core_actual` pins what atl-core emits instead. The test suite asserts BOTH that the output still differs from `expected` and that it still equals `atl_core_actual`, so the case fails on a repair (remove the marker) and equally on a new, different bug -- an assertion of mere inequality would have accepted any wrong answer at all.",
-    "atl_core_actual": "atl_core_actual is a REGRESSION PIN, not an expected value: it records the wrong output atl-core produces today, so that the test can tell a repair (output becomes the RFC value) apart from a fresh breakage (output becomes something else again). It is the one field in these vector files that is deliberately taken from the implementation, and it is only ever attached to a case already marked known_divergence. `expected` is never touched by it."
+    "atl_core_actual": "atl_core_actual is a REGRESSION PIN, not an expected value: it records the wrong output atl-core produces today, so that the test can tell a repair (output becomes the RFC value) apart from a fresh breakage (output becomes something else again). It is the one field in these vector files that is deliberately taken from the implementation, and it is only ever attached to a case already marked known_divergence. `expected` is never touched by it.",
+    "empty_known_divergences": "`known_divergences` is currently empty, and every case below is marked `pass`: atl-core meets every RFC value in this file. The marker vocabulary is kept documented rather than deleted, because a future divergence must be recorded this way -- with the RFC value left untouched -- and not by editing `expected`.",
+    "input_constraint_cases": "Cases in `input_constraint_cases` pin the RFC 8785 Section 3.1 constraints on canonicalization INPUT rather than an output string. `expects` is `error` when the input must be refused, `canonical` when it has a canonical form -- including where that output NORMALISES the spelling the author wrote, which is what canonicalization is for -- or `not_confirmable` when the input cannot be judged at all and the implementation must decline to confirm it rather than accept or reject it. `checked_by` names the layer that acts: `check_unique_property_names` reads the raw text before a parser can collapse duplicates; `receipt_deserialize` means the whole receipt must be refused by plain `serde_json::from_str::<Receipt>` and `from_reader`, the paths that go around every constructor; `receipt_provenance` means no inspection is possible at all and the receipt must instead be ineligible for confirmation; `canonicalize` sees a parsed value; and `json_parser` means the constraint is enforced by serde_json at parse time and this crate only pins that it is."
   },
-  "known_divergences": {
-    "exponential_notation_threshold": {
-      "summary": "atl-core never emits exponential notation, so every value whose ES6 rendering uses an exponent is serialized as a long plain-decimal string instead.",
-      "rfc_rule": "RFC 8785 Section 3.2.2.3 requires ECMA-262 Section 7.1.12.1 number-to-string, which switches to exponential form when the decimal exponent is >= 21 or <= -7, and which writes a '+' in a positive exponent (\"1e+30\", not \"1e30\").",
-      "implementation": "src/core/jcs.rs, format_float() delegates to Rust's f64 Display, which is shortest-round-trip but always positional, never exponential. Its exponential branch is therefore dead code, and that branch additionally strips the '+' from the exponent and so would be wrong in the opposite direction if it ever fired.",
-      "impact": "A receipt whose entry.metadata contains a number outside roughly 1e-6 .. 1e21 gets a metadata_hash that no RFC 8785-conformant implementation reproduces, which breaks third-party verification of that receipt.",
-      "example": {
-        "ieee754_hex": "444b1ae4d6e2ef50",
-        "rfc_8785": "1e+21",
-        "atl_core_currently": "1000000000000000000000"
-      }
-    },
-    "shortest_digit_tie_break": {
-      "summary": "For a value exactly between two shortest representations, ECMA-262 breaks the tie to even and Rust's Display does not.",
-      "rfc_rule": "RFC 8785 Section 3.2.2.3 requires the ECMA-262 Section 7.1.12.1 \"Note 2\" rule; the RFC's own Appendix B note (4) spells this row out: the value is exactly 1424953923781206.25 and rounds to the closest even digit.",
-      "impact": "Same class of failure as above: a divergent metadata_hash.",
-      "example": {
-        "ieee754_hex": "43143ff3c1cb0959",
-        "rfc_8785": "1424953923781206.2",
-        "atl_core_currently": "1424953923781206.3"
-      }
-    },
-    "json_float_parse_off_by_one_ulp": {
-      "summary": "A JSON number literal can be parsed into the double next to the correct one, so the value is already wrong before canonicalization ever runs. This is a PARSE-side divergence, unlike the other two entries here, which are serialization-side.",
-      "rfc_rule": "RFC 8785 Section 3.2.2 fixes the input literal 333333333.33333329 and Section 3.2.3 fixes its canonical output as 333333333.3333333. That output is the ES6 rendering of IEEE 754 0x41b3de4355555555, which RFC 8785 Appendix B lists; so the RFC requires the literal to parse to that double.",
-      "observed": "serde_json 1.0.151 parses 333333333.33333329 to 0x41b3de4355555554, one ULP below. Rust's own str::parse::<f64>, CPython float(), and ECMAScript all give 0x41b3de4355555555. atl-core then renders that wrong double correctly as 333333333.33333325 -- given 0x41b3de4355555555 directly it does emit 333333333.3333333, which is why the Appendix B row for that bit pattern passes while the worked example does not.",
-      "not_our_code": "The fault is in the JSON number parser in the serde_json dependency, not in src/core/jcs.rs. It cannot be fixed by correcting the canonicalizer; it needs either a fixed serde_json or a parser that is correctly rounded.",
-      "impact": "Worse than the serialization divergences: two implementations reading the SAME receipt bytes end up with different doubles in entry.metadata, hence different metadata_hash, hence different leaf hashes. The receipt does not have to contain an extreme value -- an ordinary 17-significant-digit decimal is enough.",
-      "example": {
-        "json_literal": "333333333.33333329",
-        "correctly_rounded_double": "41b3de4355555555",
-        "serde_json_gives": "41b3de4355555554",
-        "rfc_8785_canonical_output": "333333333.3333333",
-        "atl_core_currently": "333333333.33333325"
-      }
-    }
-  },
+  "known_divergences": {},
   "canonicalization_cases": [
     {
       "name": "rfc8785_3_2_2_worked_example",
@@ -56,13 +23,8 @@
       "origin": "rfc8785-published",
       "input_json_text": "{\n  \"numbers\": [333333333.33333329, 1E30, 4.50,\n              2e-3, 0.000000000000000000000000001],\n  \"string\": \"\\u20ac$\\u000F\\u000aA'\\u0042\\u0022\\u005c\\\\\\\"\\/\",\n  \"literals\": [null, true, false]\n}",
       "expected": "{\"literals\":[null,true,false],\"numbers\":[333333333.3333333,1e+30,4.5,0.002,1e-27],\"string\":\"€$\\u000f\\nA'B\\\"\\\\\\\\\\\"/\"}",
-      "conformance": "known_divergence",
-      "divergence": [
-        "exponential_notation_threshold",
-        "json_float_parse_off_by_one_ulp"
-      ],
-      "divergence_note": "Two independent causes. (1) Numbers 1E30 and 1e-27 must canonicalize to \"1e+30\" and \"1e-27\"; atl-core emits them positionally. (2) The literal 333333333.33333329 is parsed one ULP low by serde_json, so it renders as 333333333.33333325 instead of the required 333333333.3333333 -- a parse fault, not a formatting one. Key ordering, literals and string escaping in this example are all handled correctly.",
-      "atl_core_actual": "{\"literals\":[null,true,false],\"numbers\":[333333333.33333325,1000000000000000000000000000000,4.5,0.002,0.000000000000000000000000001],\"string\":\"€$\\u000f\\nA'B\\\"\\\\\\\\\\\"/\"}"
+      "conformance": "pass",
+      "note": "Exercises both halves of number handling at once: the literal 333333333.33333329 must PARSE to 0x41b3de4355555555, and 1E30 / 1e-27 must RENDER in exponential form with a signed exponent. Key ordering, literals and string escaping are exercised in the same case."
     },
     {
       "name": "rfc8785_3_2_3_property_sorting",
@@ -208,48 +170,32 @@
       "expected": "5e-324",
       "source": "RFC 8785 Appendix B, Table 1",
       "origin": "rfc8785-published",
-      "conformance": "known_divergence",
-      "comment": "Min pos number",
-      "divergence": [
-        "exponential_notation_threshold"
-      ],
-      "atl_core_actual": "0.000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005"
+      "conformance": "pass",
+      "comment": "Min pos number"
     },
     {
       "ieee754_hex": "8000000000000001",
       "expected": "-5e-324",
       "source": "RFC 8785 Appendix B, Table 1",
       "origin": "rfc8785-published",
-      "conformance": "known_divergence",
-      "comment": "Min neg number",
-      "divergence": [
-        "exponential_notation_threshold"
-      ],
-      "atl_core_actual": "-0.000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005"
+      "conformance": "pass",
+      "comment": "Min neg number"
     },
     {
       "ieee754_hex": "7fefffffffffffff",
       "expected": "1.7976931348623157e+308",
       "source": "RFC 8785 Appendix B, Table 1",
       "origin": "rfc8785-published",
-      "conformance": "known_divergence",
-      "comment": "Max pos number",
-      "divergence": [
-        "exponential_notation_threshold"
-      ],
-      "atl_core_actual": "179769313486231570000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      "conformance": "pass",
+      "comment": "Max pos number"
     },
     {
       "ieee754_hex": "ffefffffffffffff",
       "expected": "-1.7976931348623157e+308",
       "source": "RFC 8785 Appendix B, Table 1",
       "origin": "rfc8785-published",
-      "conformance": "known_divergence",
-      "comment": "Max neg number",
-      "divergence": [
-        "exponential_notation_threshold"
-      ],
-      "atl_core_actual": "-179769313486231570000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      "conformance": "pass",
+      "comment": "Max neg number"
     },
     {
       "ieee754_hex": "4340000000000000",
@@ -280,33 +226,21 @@
       "expected": "9.999999999999997e+22",
       "source": "RFC 8785 Appendix B, Table 1",
       "origin": "rfc8785-published",
-      "conformance": "known_divergence",
-      "divergence": [
-        "exponential_notation_threshold"
-      ],
-      "atl_core_actual": "99999999999999970000000"
+      "conformance": "pass"
     },
     {
       "ieee754_hex": "44b52d02c7e14af6",
       "expected": "1e+23",
       "source": "RFC 8785 Appendix B, Table 1",
       "origin": "rfc8785-published",
-      "conformance": "known_divergence",
-      "divergence": [
-        "exponential_notation_threshold"
-      ],
-      "atl_core_actual": "100000000000000000000000"
+      "conformance": "pass"
     },
     {
       "ieee754_hex": "44b52d02c7e14af7",
       "expected": "1.0000000000000001e+23",
       "source": "RFC 8785 Appendix B, Table 1",
       "origin": "rfc8785-published",
-      "conformance": "known_divergence",
-      "divergence": [
-        "exponential_notation_threshold"
-      ],
-      "atl_core_actual": "100000000000000010000000"
+      "conformance": "pass"
     },
     {
       "ieee754_hex": "444b1ae4d6e2ef4e",
@@ -327,22 +261,16 @@
       "expected": "1e+21",
       "source": "RFC 8785 Appendix B, Table 1",
       "origin": "rfc8785-published",
-      "conformance": "known_divergence",
-      "divergence": [
-        "exponential_notation_threshold"
-      ],
-      "atl_core_actual": "1000000000000000000000"
+      "conformance": "pass",
+      "comment": "First value at the ECMA-262 exponential threshold: decimal exponent 21"
     },
     {
       "ieee754_hex": "3eb0c6f7a0b5ed8c",
       "expected": "9.999999999999997e-7",
       "source": "RFC 8785 Appendix B, Table 1",
       "origin": "rfc8785-published",
-      "conformance": "known_divergence",
-      "divergence": [
-        "exponential_notation_threshold"
-      ],
-      "atl_core_actual": "0.0000009999999999999997"
+      "conformance": "pass",
+      "comment": "Negative side of the threshold: decimal exponent -7, so exponential form; the next row up stays positional"
     },
     {
       "ieee754_hex": "3eb0c6f7a0b5ed8d",
@@ -398,12 +326,198 @@
       "expected": "1424953923781206.2",
       "source": "RFC 8785 Appendix B, Table 1",
       "origin": "rfc8785-published",
-      "conformance": "known_divergence",
-      "comment": "Round to even",
-      "divergence": [
-        "shortest_digit_tie_break"
-      ],
-      "atl_core_actual": "1424953923781206.3"
+      "conformance": "pass",
+      "comment": "Round to even. Appendix B note (4): the value is exactly 1424953923781206.25, equidistant between two shortest representations, and the ECMA-262 Note 2 rule takes the even digit"
+    }
+  ],
+  "input_constraint_cases": [
+    {
+      "name": "duplicate_property_name_root",
+      "source": "RFC 8785 Section 3.1",
+      "origin": "rfc8785-input-constraint",
+      "constraint": "JSON objects MUST NOT exhibit duplicate property names",
+      "input_json_text": "{\"x\":1,\"x\":2}",
+      "expects": "error",
+      "checked_by": "check_unique_property_names",
+      "conformance": "pass",
+      "note": "Not detectable after parsing: serde_json keeps the last occurrence, so the value is indistinguishable from {\"x\":2} and would canonicalize happily. RFC 8259 Section 4 makes the choice of survivor unpredictable across parsers, so two verifiers can hash two different objects out of these same bytes."
+    },
+    {
+      "name": "duplicate_property_name_nested",
+      "source": "RFC 8785 Section 3.1",
+      "origin": "rfc8785-input-constraint",
+      "constraint": "JSON objects MUST NOT exhibit duplicate property names",
+      "input_json_text": "{\"entry\":{\"metadata\":{\"claims\":[{\"v\":1},{\"v\":1,\"v\":2}]}}}",
+      "expects": "error",
+      "checked_by": "check_unique_property_names",
+      "error_path": "/entry/metadata/claims/1",
+      "conformance": "pass",
+      "note": "The refusal must name the RFC 6901 JSON Pointer of the offending object; on nested metadata a refusal without a location is not actionable. `error_path` is the pointer, not a value from the RFC."
+    },
+    {
+      "name": "duplicate_property_name_lost_on_every_serde_path",
+      "source": "RFC 8785 Section 3.1, and the limits of any API that does not see the bytes",
+      "origin": "rfc8785-input-constraint",
+      "constraint": "JSON objects MUST NOT exhibit duplicate property names",
+      "input_json_text": "{\"spec_version\":\"2.0.0\",\"entry\":{\"id\":\"550e8400-e29b-41d4-a716-446655440000\",\"payload_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"metadata_hash\":\"sha256:f21df8b93a09a0e02dee36d181499498a5f71c4ee09a6b3f76e556d6d75fae5f\",\"metadata\":{\"claims\":[{\"v\":1},{\"v\":1,\"v\":2}]}},\"proof\":{\"tree_size\":1,\"root_hash\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"inclusion_path\":[],\"leaf_index\":0,\"checkpoint\":{\"origin\":\"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"tree_size\":1,\"root_hash\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"timestamp\":1704067200000000000,\"signature\":\"base64:AAAA\",\"key_id\":\"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"}}}",
+      "expects": "not_confirmable",
+      "checked_by": "receipt_provenance",
+      "conformance": "pass",
+      "note": "A whole receipt carrying a duplicate deep in entry.metadata, routed around Receipt::from_json -- through serde_json::from_str::<Receipt> and through serde_json::from_value. Receipt derives Deserialize publicly, so both are reachable by any consumer and no constructor can intercept them. Neither is a DETECTION case and neither may be written as one: serde_json keeps the last occurrence, and from_value is additionally handed a Value that an earlier parse already flattened, so by then there is nothing left to detect. The RFC 8785 Section 3.1 constraint is a property of a BYTE STREAM, and no API accepting a parsed structure can check it. An earlier revision of atl-core replaced serde_json's Deserialize impl for the metadata field with a hand-written visitor that refused duplicates during deserialization; it was withdrawn because under serde_json/arbitrary_precision -- which any crate in a consumer's dependency graph can enable, and Cargo unifies onto every crate in it -- deserialize_any delivers a non-integer number as a map keyed by the private token $serde_json::private::Number, so such a visitor builds an object where a number belongs: every metadata hash changes, and a document containing that literal object collides with one containing the number. What the case pins instead is provenance: a Receipt records whether its own bytes were ever checked, no serde path can set that record, the marker cannot be assigned across from a receipt that was checked, and ReceiptVerifier::verify declines to confirm a receipt that lacks it. The verdict is `not evaluated`, never `invalid` -- nothing about this receipt was disproved.",
+      "metadata_hash_derivation": "metadata_hash is SHA-256 of {\"claims\":[{\"v\":1},{\"v\":2}]}, the JCS form of what this document's metadata FLATTENS to once the duplicate is lost. Computed independently (hashlib over that exact string), not by running atl-core, and canonical by inspection: the keys are already sorted and there is no whitespace. It is set correctly on purpose -- with a placeholder hash the verifier stops at step 1 and the case would pass without ever reaching the provenance gate it exists to test."
+    },
+    {
+      "name": "duplicate_property_name_distinct_values_only",
+      "source": "RFC 8785 Section 3.1",
+      "origin": "rfc8785-input-constraint",
+      "constraint": "JSON objects MUST NOT exhibit duplicate property names",
+      "input_json_text": "{\"a\":{\"k\":1},\"b\":{\"k\":2},\"c\":[{\"k\":3},{\"k\":4}]}",
+      "expects": "canonical",
+      "expected": "{\"a\":{\"k\":1},\"b\":{\"k\":2},\"c\":[{\"k\":3},{\"k\":4}]}",
+      "checked_by": "check_unique_property_names",
+      "conformance": "pass",
+      "note": "The accepting side of the same boundary: the same name in DIFFERENT objects is not a duplicate. Without this case a checker that refused every repeated string anywhere would pass the two cases above."
+    },
+    {
+      "name": "number_beyond_double_precision_is_normalised",
+      "source": "RFC 8785 Appendix B notes (1) and (2), and Section 3.2.2.3",
+      "origin": "rfc8785-input-constraint",
+      "constraint": "none on the serializer: Section 3.1's number MUST binds the producer of the data, and Appendix B note (1) states that how numbers are used in applications does not affect the JCS algorithm",
+      "input_json_text": "{\"n\":9007199254740993}",
+      "expects": "canonical",
+      "expected": "{\"n\":9007199254740992}",
+      "checked_by": "canonicalize",
+      "conformance": "pass",
+      "note": "2^53 + 1, the smallest positive integer no double holds. It denotes the double 2^53 and MUST serialize as that double's ECMA-262 Section 7.1.12.1 spelling. Refusing it -- which this crate did in a pre-release draft -- reads Section 3.1's MUST as an instruction to the serializer; Appendix B note (1) says the opposite in as many words: \"how numbers are used in applications does not affect the JCS algorithm\"."
+    },
+    {
+      "name": "appendix_b_2_pow_68_integer_text_is_normalised",
+      "source": "RFC 8785 Appendix B notes (1) and (2), and Section 3.2.2.3",
+      "origin": "rfc8785-input-constraint",
+      "constraint": "none on the serializer: Section 3.1's number MUST binds the producer of the data, and Appendix B note (1) states that how numbers are used in applications does not affect the JCS algorithm",
+      "input_json_text": "{\"n\":295147905179352825856}",
+      "expects": "canonical",
+      "expected": "{\"n\":295147905179352830000}",
+      "checked_by": "canonicalize",
+      "conformance": "pass",
+      "note": "2^68 written out exactly. RFC 8785 Appendix B Table 1 requires the double 0x4430000000000000 -- which is precisely this integer -- to serialize as 295147905179352830000, and note (2) says the algorithm does not take its \"extended precision\" into consideration. The RFC normalizes a large integer by its own published table; it does not reject one. The same double is frozen from the other direction in number_serialization_cases, row 4430000000000000."
+    },
+    {
+      "name": "appendix_b_max_safe_integer_boundary",
+      "source": "RFC 8785 Appendix B notes (1) and (2), and Section 3.2.2.3",
+      "origin": "rfc8785-input-constraint",
+      "constraint": "none on the serializer: Section 3.1's number MUST binds the producer of the data, and Appendix B note (1) states that how numbers are used in applications does not affect the JCS algorithm",
+      "input_json_text": "{\"n\":9007199254740992}",
+      "expects": "canonical",
+      "expected": "{\"n\":9007199254740992}",
+      "checked_by": "canonicalize",
+      "conformance": "pass",
+      "note": "2^53, Appendix B Table 1 row 4340000000000000 (\"Max pos int\"), reached as integer TEXT rather than as a double. Fixes the boundary from the accepting side: the value one above it normalizes to this one."
+    },
+    {
+      "name": "unsigned_integer_beyond_double_precision_is_normalised",
+      "source": "RFC 8785 Appendix B notes (1) and (2), and Section 3.2.2.3",
+      "origin": "rfc8785-input-constraint",
+      "constraint": "none on the serializer: Section 3.1's number MUST binds the producer of the data, and Appendix B note (1) states that how numbers are used in applications does not affect the JCS algorithm",
+      "input_json_text": "{\"n\":18446744073709551615}",
+      "expects": "canonical",
+      "expected": "{\"n\":18446744073709552000}",
+      "checked_by": "canonicalize",
+      "conformance": "pass",
+      "note": "2^64 - 1, which only fits u64. Kept because the obvious representability check written in u64 SUCCEEDS here -- (u64::MAX as f64) as u64 saturates back to u64::MAX -- so an implementation that refuses on representability must not be lulled by it. Under the correct rule no such check exists at all."
+    },
+    {
+      "name": "ordinary_large_integer_is_normalised",
+      "source": "RFC 8785 Appendix B notes (1) and (2), and Section 3.2.2.3",
+      "origin": "rfc8785-input-constraint",
+      "constraint": "none on the serializer: Section 3.1's number MUST binds the producer of the data, and Appendix B note (1) states that how numbers are used in applications does not affect the JCS algorithm",
+      "input_json_text": "{\"n\":1756812345678901234}",
+      "expects": "canonical",
+      "expected": "{\"n\":1756812345678901200}",
+      "checked_by": "canonicalize",
+      "conformance": "pass",
+      "note": "An ordinary 19-digit integer, not a power of two: the shape a nanosecond timestamp or a fixed-point amount takes in real metadata. It denotes the double 1756812345678901248 and serializes as that double's shortest spelling."
+    },
+    {
+      "name": "exact_double_written_non_canonically_2_pow_62",
+      "source": "RFC 8785 Appendix B notes (1) and (2), and Section 3.2.2.3",
+      "origin": "rfc8785-input-constraint",
+      "constraint": "none on the serializer: Section 3.1's number MUST binds the producer of the data, and Appendix B note (1) states that how numbers are used in applications does not affect the JCS algorithm",
+      "input_json_text": "{\"n\":4611686018427387904}",
+      "expects": "canonical",
+      "expected": "{\"n\":4611686018427388000}",
+      "checked_by": "canonicalize",
+      "conformance": "pass",
+      "note": "2^62 is exactly representable, and is still normalized: what decides the output is the double, never the digits. A draft rule refused this, which meant reporting `untrusted` for a receipt a JavaScript verifier reports valid -- a claimed inability where the ability plainly exists."
+    },
+    {
+      "name": "exact_double_written_non_canonically_2_pow_60",
+      "source": "RFC 8785 Appendix B notes (1) and (2), and Section 3.2.2.3",
+      "origin": "rfc8785-input-constraint",
+      "constraint": "none on the serializer: Section 3.1's number MUST binds the producer of the data, and Appendix B note (1) states that how numbers are used in applications does not affect the JCS algorithm",
+      "input_json_text": "{\"n\":1152921504606846976}",
+      "expects": "canonical",
+      "expected": "{\"n\":1152921504606847000}",
+      "checked_by": "canonicalize",
+      "conformance": "pass",
+      "note": "2^60, the same shape at a magnitude ordinary metadata reaches -- a byte count or a bit mask lands here without anything exotic. One case could be dismissed as a corner; two at different magnitudes fix the rule."
+    },
+    {
+      "name": "normalised_spelling_is_a_fixed_point",
+      "source": "RFC 8785 Appendix B notes (1) and (2), and Section 3.2.2.3",
+      "origin": "rfc8785-input-constraint",
+      "constraint": "none on the serializer: Section 3.1's number MUST binds the producer of the data, and Appendix B note (1) states that how numbers are used in applications does not affect the JCS algorithm",
+      "input_json_text": "{\"n\":4611686018427388000}",
+      "expects": "canonical",
+      "expected": "{\"n\":4611686018427388000}",
+      "checked_by": "canonicalize",
+      "conformance": "pass",
+      "note": "The output of the 2^62 case fed back in. It is NOT itself an exact double (it lies between 2^62 and the next double up), so a rule demanding exact representability would refuse the canonicalizer's own output and canonicalization would not be a fixed point. Every case in this group must survive being re-fed to the canonicalizer unchanged, and the test asserts that for all of them."
+    },
+    {
+      "name": "safe_integers_are_emitted_verbatim",
+      "source": "RFC 8785 Appendix B notes (1) and (2), and Section 3.2.2.3",
+      "origin": "rfc8785-input-constraint",
+      "constraint": "none on the serializer: Section 3.1's number MUST binds the producer of the data, and Appendix B note (1) states that how numbers are used in applications does not affect the JCS algorithm",
+      "input_json_text": "{\"a\":0,\"b\":-1,\"c\":42,\"d\":9007199254740991,\"e\":-9007199254740991}",
+      "expects": "canonical",
+      "expected": "{\"a\":0,\"b\":-1,\"c\":42,\"d\":9007199254740991,\"e\":-9007199254740991}",
+      "checked_by": "canonicalize",
+      "conformance": "pass",
+      "note": "The whole ECMA-262 safe-integer range, which is all ordinary metadata, is emitted digit for digit. Normalization changes nothing here, so the output is byte-identical to what a naive implementation produces -- which is why this repair does not disturb receipts that hold only ordinary integers."
+    },
+    {
+      "name": "lone_surrogate_escape",
+      "source": "RFC 8785 Section 3.1",
+      "origin": "rfc8785-input-constraint",
+      "constraint": "JSON string data MUST be expressible as Unicode",
+      "input_json_text": "{\"s\":\"\\ud800\"}",
+      "expects": "error",
+      "checked_by": "json_parser",
+      "conformance": "pass",
+      "note": "An unpaired high surrogate is not a Unicode scalar value and has no UTF-8 encoding. serde_json refuses it at parse time, so it can never reach canonicalization; the case exists to make that guarantee observable rather than assumed, since it is enforced by a dependency and not by this crate's code."
+    },
+    {
+      "name": "lone_surrogate_escape_low",
+      "source": "RFC 8785 Section 3.1",
+      "origin": "rfc8785-input-constraint",
+      "constraint": "JSON string data MUST be expressible as Unicode",
+      "input_json_text": "{\"s\":\"\\udfff\"}",
+      "expects": "error",
+      "checked_by": "json_parser",
+      "conformance": "pass"
+    },
+    {
+      "name": "well_formed_surrogate_pair",
+      "source": "RFC 8785 Section 3.2.2.2",
+      "origin": "rfc8785-input-constraint",
+      "constraint": "JSON string data MUST be expressible as Unicode",
+      "input_json_text": "{\"s\":\"\\ud83d\\ude00\"}",
+      "expects": "canonical",
+      "expected": "{\"s\":\"😀\"}",
+      "checked_by": "json_parser",
+      "conformance": "pass",
+      "note": "The accepting side: a well-formed surrogate PAIR is one scalar value, U+1F600, and Section 3.2.2.2 emits it as UTF-8 rather than escaped. Without this case a parser that refused every \\ud8xx escape would pass the two above."
     }
   ]
 }

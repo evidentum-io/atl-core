@@ -20,6 +20,7 @@
 use super::rfc3161_tests::{decode_freetsa_root_cert, FREETSA_HASH, FREETSA_TOKEN};
 use crate::core::checkpoint::{compute_key_id, Checkpoint, CheckpointJson};
 use crate::core::jcs::canonicalize_and_hash;
+use crate::core::receipt::ReceiptBuilder;
 use crate::core::receipt::{
     format_hash, Receipt, ReceiptAnchor, ReceiptEntry, ReceiptProof, SuperProof,
     RECEIPT_SPEC_VERSION,
@@ -55,18 +56,19 @@ fn make_receipt_anchored_to_freetsa() -> Receipt {
         Checkpoint::new(origin, tree_size, timestamp, root_hash, signature.to_bytes(), key_id);
 
     let metadata = json!({});
-    let metadata_hash = format_hash(&canonicalize_and_hash(&metadata));
+    let metadata_hash = format_hash(
+        &canonicalize_and_hash(&metadata).expect("metadata satisfies RFC 8785 Section 3.1"),
+    );
 
-    Receipt {
-        spec_version: RECEIPT_SPEC_VERSION.to_string(),
-        upgrade_url: None,
-        entry: ReceiptEntry {
+    ReceiptBuilder::new(
+        RECEIPT_SPEC_VERSION.to_string(),
+        ReceiptEntry {
             id: uuid::Uuid::nil(),
             payload_hash: format_hash(&[0xaa; 32]),
             metadata_hash,
             metadata,
         },
-        proof: ReceiptProof {
+        ReceiptProof {
             tree_size: 1,
             root_hash: format_hash(&root_hash),
             inclusion_path: vec![],
@@ -80,23 +82,23 @@ fn make_receipt_anchored_to_freetsa() -> Receipt {
                 key_id: format_hash(&checkpoint.key_id),
             },
             consistency_proof: None,
-        },
-        super_proof: Some(SuperProof {
-            genesis_super_root: format_hash(&root_hash),
-            data_tree_index: 0,
-            super_tree_size: 1,
-            super_root: format_hash(&root_hash),
-            inclusion: vec![],
-            consistency_to_origin: vec![],
-        }),
-        anchors: vec![ReceiptAnchor::Rfc3161 {
-            target: "data_tree_root".to_string(),
-            target_hash: format_hash(&root_hash),
-            tsa_url: "https://freetsa.org/tsr".to_string(),
-            timestamp: "2026-01-04T21:57:43Z".to_string(),
-            token_der: format!("base64:{FREETSA_TOKEN}"),
-        }],
-    }
+        })
+    .super_proof_option(Some(SuperProof {
+        genesis_super_root: format_hash(&root_hash),
+        data_tree_index: 0,
+        super_tree_size: 1,
+        super_root: format_hash(&root_hash),
+        inclusion: vec![],
+        consistency_to_origin: vec![],
+    }))
+    .anchors(vec![ReceiptAnchor::Rfc3161 {
+        target: "data_tree_root".to_string(),
+        target_hash: format_hash(&root_hash),
+        tsa_url: "https://freetsa.org/tsr".to_string(),
+        timestamp: "2026-01-04T21:57:43Z".to_string(),
+        token_der: format!("base64:{FREETSA_TOKEN}"),
+    }])
+    .upgrade_url_option(None).build(crate::core::receipt::SourceTextCheck::assume_duplicate_property_names_already_rejected())
 }
 
 #[test]

@@ -25,7 +25,7 @@ pub use checkpoint::{
 };
 
 // JSON Canonicalization Scheme
-pub use jcs::{canonicalize, canonicalize_and_hash};
+pub use jcs::{canonicalize, canonicalize_and_hash, check_unique_property_names};
 
 // Merkle tree operations (RFC 6962)
 pub use merkle::{
@@ -58,8 +58,8 @@ pub use merkle::{
 // Receipt types and formatting
 pub use receipt::{
     format_hash, format_signature, is_supported_spec_version, parse_base64_signature, Receipt,
-    ReceiptAnchor, ReceiptConsistencyProof, ReceiptEntry, ReceiptProof, SuperProof,
-    RECEIPT_SPEC_VERSION,
+    ReceiptAnchor, ReceiptBuilder, ReceiptConsistencyProof, ReceiptEntry, ReceiptProof,
+    SourceTextCheck, SuperProof, RECEIPT_SPEC_VERSION,
 };
 
 // Receipt verification
