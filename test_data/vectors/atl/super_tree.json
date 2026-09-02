@@ -1,0 +1,722 @@
+{
+  "description": "Frozen vectors for the ATL Super-Tree: Data Tree roots as Super-Tree leaves, Super Roots, genesis_super_root, Super-Tree inclusion proofs and consistency-to-origin proofs. Derived from the ATL specification and the RFC 6962 algorithm text by an independent implementation, never by atl-core.",
+  "provenance": {
+    "super_leaves": "The eight Data Tree roots used as Super-Tree leaves are the published Certificate Transparency reference roots for tree sizes 1..8 (see test_data/vectors/merkle/trees.json, `roots`). Using published values as the leaves means the whole Super-Tree is anchored to externally known inputs.",
+    "structure": "Derived from atl-protocol-ietf.md, 'Merkle Tree Structure' > 'Super-Tree (Global Chain Consistency)' and the 'Verification Algorithm' > 'Verify Super-Tree Proof' subsections, using the RFC 6962 Section 2.1 / 2.1.1 / 2.1.2 algorithms over an independent SHA-256."
+  },
+  "leaf_hashing_note": "A Data Tree root is used DIRECTLY as a Super-Tree leaf hash; it is NOT re-hashed as SHA256(0x00 || root_hash). The section 'Super-Tree Structure' only says the Super-Tree is \"a standard RFC 9162 Merkle Tree where each leaf is the root hash of a closed Data Tree\", which read literally would imply RFC 9162's own 0x00 leaf hashing on top. What settles it is the field definition of super_proof.genesis_super_root in 'Evidence Receipt (JSON)': \"The root hash of Super-Tree at size 1 (first Data Tree's root)\" -- a size-1 Merkle tree root equals its single leaf hash, so leaf hash == Data Tree root. These vectors follow that reading, which is also what atl-core implements. The prose in 'Super-Tree Structure' should be tightened, because an implementer reading only that section will compute a different Super Root.",
+  "formulas": {
+    "super_leaf": "SuperTreeLeaf[i] = DataTree[i].root_hash  (used as the leaf HASH, unhashed)",
+    "super_root": "MTH over SuperTreeLeaf[0..super_tree_size), RFC 6962 Section 2.1 node rule",
+    "genesis_super_root": "Super Root at super_tree_size == 1 == SuperTreeLeaf[0]",
+    "inclusion": "PATH(data_tree_index, SuperTreeLeaf[0..super_tree_size)), RFC 6962 Section 2.1.1",
+    "consistency_to_origin": "PROOF(1, SuperTreeLeaf[0..super_tree_size)), RFC 9162 Section 2.1.4 -- from_tree_size is always 1 per 'Consistency to Origin'"
+  },
+  "super_leaves": [
+    {
+      "data_tree_index": 0,
+      "data_tree_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "origin": "rfc6962-published",
+      "note": "published CT reference root for a Data Tree of size 1"
+    },
+    {
+      "data_tree_index": 1,
+      "data_tree_root": "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+      "origin": "rfc6962-published",
+      "note": "published CT reference root for a Data Tree of size 2"
+    },
+    {
+      "data_tree_index": 2,
+      "data_tree_root": "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77",
+      "origin": "rfc6962-published",
+      "note": "published CT reference root for a Data Tree of size 3"
+    },
+    {
+      "data_tree_index": 3,
+      "data_tree_root": "d37ee418976dd95753c1c73862b9398fa2a2cf9b4ff0fdfe8b30cd95209614b7",
+      "origin": "rfc6962-published",
+      "note": "published CT reference root for a Data Tree of size 4"
+    },
+    {
+      "data_tree_index": 4,
+      "data_tree_root": "4e3bbb1f7b478dcfe71fb631631519a3bca12c9aefca1612bfce4c13a86264d4",
+      "origin": "rfc6962-published",
+      "note": "published CT reference root for a Data Tree of size 5"
+    },
+    {
+      "data_tree_index": 5,
+      "data_tree_root": "76e67dadbcdf1e10e1b74ddc608abd2f98dfb16fbce75277b5232a127f2087ef",
+      "origin": "rfc6962-published",
+      "note": "published CT reference root for a Data Tree of size 6"
+    },
+    {
+      "data_tree_index": 6,
+      "data_tree_root": "ddb89be403809e325750d3d263cd78929c2942b7942a34b77e122c9594a74c8c",
+      "origin": "rfc6962-published",
+      "note": "published CT reference root for a Data Tree of size 7"
+    },
+    {
+      "data_tree_index": 7,
+      "data_tree_root": "5dc9da79a70659a9ad559cb701ded9a2ab9d823aad2f4960cfe370eff4604328",
+      "origin": "rfc6962-published",
+      "note": "published CT reference root for a Data Tree of size 8"
+    }
+  ],
+  "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+  "super_roots": [
+    {
+      "super_tree_size": 1,
+      "super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 2,
+      "super_root": "97960996e3dcb3973b0f8b85347c0f5e332164f43b8863141977e761ce93e7fe",
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 3,
+      "super_root": "182d67420249074d5af1a0d586627c282a8ce028b9ab508bd272df024d53be9f",
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 4,
+      "super_root": "28714dc48bc046b00d466695f5482191e3f00b86217a3aab5977b90e327f83e7",
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 5,
+      "super_root": "a994ec3d088b75f00a8577b399e2dd5a660348ba94056ee0386124b0bd513484",
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 6,
+      "super_root": "41b72435d8835290ae86e1e8fc4b9686ed8dbe75f9afa4f5dbd92be4a205c6af",
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 7,
+      "super_root": "f8d69de77c6bb27427e6a0f28723a2be6ef777044d8d8a2d98cece50fd88cbe5",
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 8,
+      "super_root": "8104cd073c2fb05ab05f945f4e7d690b278d79bc1e0c0072917322a49fa5c532",
+      "origin": "atl-spec-derived"
+    }
+  ],
+  "super_proofs": [
+    {
+      "super_tree_size": 1,
+      "data_tree_index": 0,
+      "data_tree_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [],
+      "consistency_to_origin": [],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 2,
+      "data_tree_index": 0,
+      "data_tree_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "super_root": "97960996e3dcb3973b0f8b85347c0f5e332164f43b8863141977e761ce93e7fe",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 2,
+      "data_tree_index": 1,
+      "data_tree_root": "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+      "super_root": "97960996e3dcb3973b0f8b85347c0f5e332164f43b8863141977e761ce93e7fe",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 3,
+      "data_tree_index": 0,
+      "data_tree_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "super_root": "182d67420249074d5af1a0d586627c282a8ce028b9ab508bd272df024d53be9f",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 3,
+      "data_tree_index": 1,
+      "data_tree_root": "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+      "super_root": "182d67420249074d5af1a0d586627c282a8ce028b9ab508bd272df024d53be9f",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+        "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 3,
+      "data_tree_index": 2,
+      "data_tree_root": "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77",
+      "super_root": "182d67420249074d5af1a0d586627c282a8ce028b9ab508bd272df024d53be9f",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "97960996e3dcb3973b0f8b85347c0f5e332164f43b8863141977e761ce93e7fe"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 4,
+      "data_tree_index": 0,
+      "data_tree_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "super_root": "28714dc48bc046b00d466695f5482191e3f00b86217a3aab5977b90e327f83e7",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 4,
+      "data_tree_index": 1,
+      "data_tree_root": "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+      "super_root": "28714dc48bc046b00d466695f5482191e3f00b86217a3aab5977b90e327f83e7",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 4,
+      "data_tree_index": 2,
+      "data_tree_root": "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77",
+      "super_root": "28714dc48bc046b00d466695f5482191e3f00b86217a3aab5977b90e327f83e7",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "d37ee418976dd95753c1c73862b9398fa2a2cf9b4ff0fdfe8b30cd95209614b7",
+        "97960996e3dcb3973b0f8b85347c0f5e332164f43b8863141977e761ce93e7fe"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 4,
+      "data_tree_index": 3,
+      "data_tree_root": "d37ee418976dd95753c1c73862b9398fa2a2cf9b4ff0fdfe8b30cd95209614b7",
+      "super_root": "28714dc48bc046b00d466695f5482191e3f00b86217a3aab5977b90e327f83e7",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77",
+        "97960996e3dcb3973b0f8b85347c0f5e332164f43b8863141977e761ce93e7fe"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 5,
+      "data_tree_index": 0,
+      "data_tree_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "super_root": "a994ec3d088b75f00a8577b399e2dd5a660348ba94056ee0386124b0bd513484",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "4e3bbb1f7b478dcfe71fb631631519a3bca12c9aefca1612bfce4c13a86264d4"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "4e3bbb1f7b478dcfe71fb631631519a3bca12c9aefca1612bfce4c13a86264d4"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 5,
+      "data_tree_index": 1,
+      "data_tree_root": "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+      "super_root": "a994ec3d088b75f00a8577b399e2dd5a660348ba94056ee0386124b0bd513484",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "4e3bbb1f7b478dcfe71fb631631519a3bca12c9aefca1612bfce4c13a86264d4"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "4e3bbb1f7b478dcfe71fb631631519a3bca12c9aefca1612bfce4c13a86264d4"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 5,
+      "data_tree_index": 2,
+      "data_tree_root": "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77",
+      "super_root": "a994ec3d088b75f00a8577b399e2dd5a660348ba94056ee0386124b0bd513484",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "d37ee418976dd95753c1c73862b9398fa2a2cf9b4ff0fdfe8b30cd95209614b7",
+        "97960996e3dcb3973b0f8b85347c0f5e332164f43b8863141977e761ce93e7fe",
+        "4e3bbb1f7b478dcfe71fb631631519a3bca12c9aefca1612bfce4c13a86264d4"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "4e3bbb1f7b478dcfe71fb631631519a3bca12c9aefca1612bfce4c13a86264d4"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 5,
+      "data_tree_index": 3,
+      "data_tree_root": "d37ee418976dd95753c1c73862b9398fa2a2cf9b4ff0fdfe8b30cd95209614b7",
+      "super_root": "a994ec3d088b75f00a8577b399e2dd5a660348ba94056ee0386124b0bd513484",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77",
+        "97960996e3dcb3973b0f8b85347c0f5e332164f43b8863141977e761ce93e7fe",
+        "4e3bbb1f7b478dcfe71fb631631519a3bca12c9aefca1612bfce4c13a86264d4"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "4e3bbb1f7b478dcfe71fb631631519a3bca12c9aefca1612bfce4c13a86264d4"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 5,
+      "data_tree_index": 4,
+      "data_tree_root": "4e3bbb1f7b478dcfe71fb631631519a3bca12c9aefca1612bfce4c13a86264d4",
+      "super_root": "a994ec3d088b75f00a8577b399e2dd5a660348ba94056ee0386124b0bd513484",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "28714dc48bc046b00d466695f5482191e3f00b86217a3aab5977b90e327f83e7"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "4e3bbb1f7b478dcfe71fb631631519a3bca12c9aefca1612bfce4c13a86264d4"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 6,
+      "data_tree_index": 0,
+      "data_tree_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "super_root": "41b72435d8835290ae86e1e8fc4b9686ed8dbe75f9afa4f5dbd92be4a205c6af",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "987ed34dc248b1dab211eac2ecf67f139dfedca7deabf4de18e1b343397444d3"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "987ed34dc248b1dab211eac2ecf67f139dfedca7deabf4de18e1b343397444d3"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 6,
+      "data_tree_index": 1,
+      "data_tree_root": "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+      "super_root": "41b72435d8835290ae86e1e8fc4b9686ed8dbe75f9afa4f5dbd92be4a205c6af",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "987ed34dc248b1dab211eac2ecf67f139dfedca7deabf4de18e1b343397444d3"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "987ed34dc248b1dab211eac2ecf67f139dfedca7deabf4de18e1b343397444d3"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 6,
+      "data_tree_index": 2,
+      "data_tree_root": "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77",
+      "super_root": "41b72435d8835290ae86e1e8fc4b9686ed8dbe75f9afa4f5dbd92be4a205c6af",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "d37ee418976dd95753c1c73862b9398fa2a2cf9b4ff0fdfe8b30cd95209614b7",
+        "97960996e3dcb3973b0f8b85347c0f5e332164f43b8863141977e761ce93e7fe",
+        "987ed34dc248b1dab211eac2ecf67f139dfedca7deabf4de18e1b343397444d3"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "987ed34dc248b1dab211eac2ecf67f139dfedca7deabf4de18e1b343397444d3"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 6,
+      "data_tree_index": 3,
+      "data_tree_root": "d37ee418976dd95753c1c73862b9398fa2a2cf9b4ff0fdfe8b30cd95209614b7",
+      "super_root": "41b72435d8835290ae86e1e8fc4b9686ed8dbe75f9afa4f5dbd92be4a205c6af",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77",
+        "97960996e3dcb3973b0f8b85347c0f5e332164f43b8863141977e761ce93e7fe",
+        "987ed34dc248b1dab211eac2ecf67f139dfedca7deabf4de18e1b343397444d3"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "987ed34dc248b1dab211eac2ecf67f139dfedca7deabf4de18e1b343397444d3"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 6,
+      "data_tree_index": 4,
+      "data_tree_root": "4e3bbb1f7b478dcfe71fb631631519a3bca12c9aefca1612bfce4c13a86264d4",
+      "super_root": "41b72435d8835290ae86e1e8fc4b9686ed8dbe75f9afa4f5dbd92be4a205c6af",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "76e67dadbcdf1e10e1b74ddc608abd2f98dfb16fbce75277b5232a127f2087ef",
+        "28714dc48bc046b00d466695f5482191e3f00b86217a3aab5977b90e327f83e7"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "987ed34dc248b1dab211eac2ecf67f139dfedca7deabf4de18e1b343397444d3"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 6,
+      "data_tree_index": 5,
+      "data_tree_root": "76e67dadbcdf1e10e1b74ddc608abd2f98dfb16fbce75277b5232a127f2087ef",
+      "super_root": "41b72435d8835290ae86e1e8fc4b9686ed8dbe75f9afa4f5dbd92be4a205c6af",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "4e3bbb1f7b478dcfe71fb631631519a3bca12c9aefca1612bfce4c13a86264d4",
+        "28714dc48bc046b00d466695f5482191e3f00b86217a3aab5977b90e327f83e7"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "987ed34dc248b1dab211eac2ecf67f139dfedca7deabf4de18e1b343397444d3"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 7,
+      "data_tree_index": 0,
+      "data_tree_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "super_root": "f8d69de77c6bb27427e6a0f28723a2be6ef777044d8d8a2d98cece50fd88cbe5",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "9c59a464b8c2ce3636492c4387f40c823b4d83373bdee98ec07634c30e4786d7"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "9c59a464b8c2ce3636492c4387f40c823b4d83373bdee98ec07634c30e4786d7"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 7,
+      "data_tree_index": 1,
+      "data_tree_root": "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+      "super_root": "f8d69de77c6bb27427e6a0f28723a2be6ef777044d8d8a2d98cece50fd88cbe5",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "9c59a464b8c2ce3636492c4387f40c823b4d83373bdee98ec07634c30e4786d7"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "9c59a464b8c2ce3636492c4387f40c823b4d83373bdee98ec07634c30e4786d7"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 7,
+      "data_tree_index": 2,
+      "data_tree_root": "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77",
+      "super_root": "f8d69de77c6bb27427e6a0f28723a2be6ef777044d8d8a2d98cece50fd88cbe5",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "d37ee418976dd95753c1c73862b9398fa2a2cf9b4ff0fdfe8b30cd95209614b7",
+        "97960996e3dcb3973b0f8b85347c0f5e332164f43b8863141977e761ce93e7fe",
+        "9c59a464b8c2ce3636492c4387f40c823b4d83373bdee98ec07634c30e4786d7"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "9c59a464b8c2ce3636492c4387f40c823b4d83373bdee98ec07634c30e4786d7"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 7,
+      "data_tree_index": 3,
+      "data_tree_root": "d37ee418976dd95753c1c73862b9398fa2a2cf9b4ff0fdfe8b30cd95209614b7",
+      "super_root": "f8d69de77c6bb27427e6a0f28723a2be6ef777044d8d8a2d98cece50fd88cbe5",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77",
+        "97960996e3dcb3973b0f8b85347c0f5e332164f43b8863141977e761ce93e7fe",
+        "9c59a464b8c2ce3636492c4387f40c823b4d83373bdee98ec07634c30e4786d7"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "9c59a464b8c2ce3636492c4387f40c823b4d83373bdee98ec07634c30e4786d7"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 7,
+      "data_tree_index": 4,
+      "data_tree_root": "4e3bbb1f7b478dcfe71fb631631519a3bca12c9aefca1612bfce4c13a86264d4",
+      "super_root": "f8d69de77c6bb27427e6a0f28723a2be6ef777044d8d8a2d98cece50fd88cbe5",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "76e67dadbcdf1e10e1b74ddc608abd2f98dfb16fbce75277b5232a127f2087ef",
+        "ddb89be403809e325750d3d263cd78929c2942b7942a34b77e122c9594a74c8c",
+        "28714dc48bc046b00d466695f5482191e3f00b86217a3aab5977b90e327f83e7"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "9c59a464b8c2ce3636492c4387f40c823b4d83373bdee98ec07634c30e4786d7"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 7,
+      "data_tree_index": 5,
+      "data_tree_root": "76e67dadbcdf1e10e1b74ddc608abd2f98dfb16fbce75277b5232a127f2087ef",
+      "super_root": "f8d69de77c6bb27427e6a0f28723a2be6ef777044d8d8a2d98cece50fd88cbe5",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "4e3bbb1f7b478dcfe71fb631631519a3bca12c9aefca1612bfce4c13a86264d4",
+        "ddb89be403809e325750d3d263cd78929c2942b7942a34b77e122c9594a74c8c",
+        "28714dc48bc046b00d466695f5482191e3f00b86217a3aab5977b90e327f83e7"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "9c59a464b8c2ce3636492c4387f40c823b4d83373bdee98ec07634c30e4786d7"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 7,
+      "data_tree_index": 6,
+      "data_tree_root": "ddb89be403809e325750d3d263cd78929c2942b7942a34b77e122c9594a74c8c",
+      "super_root": "f8d69de77c6bb27427e6a0f28723a2be6ef777044d8d8a2d98cece50fd88cbe5",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "987ed34dc248b1dab211eac2ecf67f139dfedca7deabf4de18e1b343397444d3",
+        "28714dc48bc046b00d466695f5482191e3f00b86217a3aab5977b90e327f83e7"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "9c59a464b8c2ce3636492c4387f40c823b4d83373bdee98ec07634c30e4786d7"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 8,
+      "data_tree_index": 0,
+      "data_tree_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "super_root": "8104cd073c2fb05ab05f945f4e7d690b278d79bc1e0c0072917322a49fa5c532",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "63bd4748357e9ba13f1ed674866c463d7cf600615bf7b93ec149f520c2b5ab68"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "63bd4748357e9ba13f1ed674866c463d7cf600615bf7b93ec149f520c2b5ab68"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 8,
+      "data_tree_index": 1,
+      "data_tree_root": "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+      "super_root": "8104cd073c2fb05ab05f945f4e7d690b278d79bc1e0c0072917322a49fa5c532",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "63bd4748357e9ba13f1ed674866c463d7cf600615bf7b93ec149f520c2b5ab68"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "63bd4748357e9ba13f1ed674866c463d7cf600615bf7b93ec149f520c2b5ab68"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 8,
+      "data_tree_index": 2,
+      "data_tree_root": "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77",
+      "super_root": "8104cd073c2fb05ab05f945f4e7d690b278d79bc1e0c0072917322a49fa5c532",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "d37ee418976dd95753c1c73862b9398fa2a2cf9b4ff0fdfe8b30cd95209614b7",
+        "97960996e3dcb3973b0f8b85347c0f5e332164f43b8863141977e761ce93e7fe",
+        "63bd4748357e9ba13f1ed674866c463d7cf600615bf7b93ec149f520c2b5ab68"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "63bd4748357e9ba13f1ed674866c463d7cf600615bf7b93ec149f520c2b5ab68"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 8,
+      "data_tree_index": 3,
+      "data_tree_root": "d37ee418976dd95753c1c73862b9398fa2a2cf9b4ff0fdfe8b30cd95209614b7",
+      "super_root": "8104cd073c2fb05ab05f945f4e7d690b278d79bc1e0c0072917322a49fa5c532",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77",
+        "97960996e3dcb3973b0f8b85347c0f5e332164f43b8863141977e761ce93e7fe",
+        "63bd4748357e9ba13f1ed674866c463d7cf600615bf7b93ec149f520c2b5ab68"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "63bd4748357e9ba13f1ed674866c463d7cf600615bf7b93ec149f520c2b5ab68"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 8,
+      "data_tree_index": 4,
+      "data_tree_root": "4e3bbb1f7b478dcfe71fb631631519a3bca12c9aefca1612bfce4c13a86264d4",
+      "super_root": "8104cd073c2fb05ab05f945f4e7d690b278d79bc1e0c0072917322a49fa5c532",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "76e67dadbcdf1e10e1b74ddc608abd2f98dfb16fbce75277b5232a127f2087ef",
+        "cf8e7aff4ad8067935365f9ab9ff6937d3ed94e435026c1357c1f9a691a56a1f",
+        "28714dc48bc046b00d466695f5482191e3f00b86217a3aab5977b90e327f83e7"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "63bd4748357e9ba13f1ed674866c463d7cf600615bf7b93ec149f520c2b5ab68"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 8,
+      "data_tree_index": 5,
+      "data_tree_root": "76e67dadbcdf1e10e1b74ddc608abd2f98dfb16fbce75277b5232a127f2087ef",
+      "super_root": "8104cd073c2fb05ab05f945f4e7d690b278d79bc1e0c0072917322a49fa5c532",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "4e3bbb1f7b478dcfe71fb631631519a3bca12c9aefca1612bfce4c13a86264d4",
+        "cf8e7aff4ad8067935365f9ab9ff6937d3ed94e435026c1357c1f9a691a56a1f",
+        "28714dc48bc046b00d466695f5482191e3f00b86217a3aab5977b90e327f83e7"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "63bd4748357e9ba13f1ed674866c463d7cf600615bf7b93ec149f520c2b5ab68"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 8,
+      "data_tree_index": 6,
+      "data_tree_root": "ddb89be403809e325750d3d263cd78929c2942b7942a34b77e122c9594a74c8c",
+      "super_root": "8104cd073c2fb05ab05f945f4e7d690b278d79bc1e0c0072917322a49fa5c532",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "5dc9da79a70659a9ad559cb701ded9a2ab9d823aad2f4960cfe370eff4604328",
+        "987ed34dc248b1dab211eac2ecf67f139dfedca7deabf4de18e1b343397444d3",
+        "28714dc48bc046b00d466695f5482191e3f00b86217a3aab5977b90e327f83e7"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "63bd4748357e9ba13f1ed674866c463d7cf600615bf7b93ec149f520c2b5ab68"
+      ],
+      "origin": "atl-spec-derived"
+    },
+    {
+      "super_tree_size": 8,
+      "data_tree_index": 7,
+      "data_tree_root": "5dc9da79a70659a9ad559cb701ded9a2ab9d823aad2f4960cfe370eff4604328",
+      "super_root": "8104cd073c2fb05ab05f945f4e7d690b278d79bc1e0c0072917322a49fa5c532",
+      "genesis_super_root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "inclusion": [
+        "ddb89be403809e325750d3d263cd78929c2942b7942a34b77e122c9594a74c8c",
+        "987ed34dc248b1dab211eac2ecf67f139dfedca7deabf4de18e1b343397444d3",
+        "28714dc48bc046b00d466695f5482191e3f00b86217a3aab5977b90e327f83e7"
+      ],
+      "consistency_to_origin": [
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "a85a5afddaeb460f6fd3878bf4a1d95b693123ba497f39de56b16937e42edf62",
+        "63bd4748357e9ba13f1ed674866c463d7cf600615bf7b93ec149f520c2b5ab68"
+      ],
+      "origin": "atl-spec-derived"
+    }
+  ]
+}

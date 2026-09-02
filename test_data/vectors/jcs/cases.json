@@ -1,91 +1,409 @@
-[
-  {
-    "name": "simple_object",
-    "input": {"b": 2, "a": 1},
-    "expected": "{\"a\":1,\"b\":2}"
-  },
-  {
-    "name": "nested_object",
-    "input": {"outer": {"b": 2, "a": 1}},
-    "expected": "{\"outer\":{\"a\":1,\"b\":2}}"
-  },
-  {
-    "name": "unicode_keys",
-    "input": {"é": 1, "e": 2},
-    "expected": "{\"e\":2,\"é\":1}"
-  },
-  {
-    "name": "number_formatting",
-    "input": {"n": 1.0},
-    "expected": "{\"n\":1}"
-  },
-  {
-    "name": "empty_object",
-    "input": {},
-    "expected": "{}"
-  },
-  {
-    "name": "empty_array",
-    "input": [],
-    "expected": "[]"
-  },
-  {
-    "name": "array_with_objects",
-    "input": [{"b": 2, "a": 1}, {"d": 4, "c": 3}],
-    "expected": "[{\"a\":1,\"b\":2},{\"c\":3,\"d\":4}]"
-  },
-  {
-    "name": "null_value",
-    "input": null,
-    "expected": "null"
-  },
-  {
-    "name": "boolean_values",
-    "input": {"false": false, "true": true},
-    "expected": "{\"false\":false,\"true\":true}"
-  },
-  {
-    "name": "string_escaping",
-    "input": {"quote": "a\"b", "backslash": "a\\b", "newline": "a\nb"},
-    "expected": "{\"backslash\":\"a\\\\b\",\"newline\":\"a\\nb\",\"quote\":\"a\\\"b\"}"
-  },
-  {
-    "name": "unicode_not_escaped",
-    "input": {"text": "café 日本語 😀"},
-    "expected": "{\"text\":\"café 日本語 😀\"}"
-  },
-  {
-    "name": "nested_arrays",
-    "input": [[1, 2], [3, 4]],
-    "expected": "[[1,2],[3,4]]"
-  },
-  {
-    "name": "complex_structure",
-    "input": {
-      "z": [1, 2, 3],
-      "a": {
-        "nested": true,
-        "array": [{"b": 2}, {"a": 1}]
-      },
-      "m": null
+{
+  "description": "Frozen RFC 8785 (JSON Canonicalization Scheme) test vectors. ATL hashes entry metadata as SHA256(JCS(metadata)), so every byte of JCS output is protocol-visible: two implementations that canonicalize differently produce different metadata_hash values and therefore different leaf hashes and different roots.",
+  "provenance": {
+    "origins": {
+      "rfc8785-published": "Verbatim from RFC 8785. The Section 3.2.2 / 3.2.3 worked example and its canonical output are additionally byte-checked against the hexadecimal dump the RFC prints in Section 3.2.4. The Appendix B rows are the RFC's own Table 1.",
+      "rfc8785-derived": "No published example covers this input; the expected output was written by reading the rule text in the cited section. Integer-only, so the ES6 floating-point algorithm of Section 3.2.2.3 is not involved and the expected value is decidable by inspection."
     },
-    "expected": "{\"a\":{\"array\":[{\"b\":2},{\"a\":1}],\"nested\":true},\"m\":null,\"z\":[1,2,3]}"
+    "not_generated_by_atl_core": "No expected value in this file was produced by running atl-core. The `conformance` field describes atl-core's current behaviour; the `expected` field never does."
   },
-  {
-    "name": "numbers_no_trailing_zeros",
-    "input": {"float": 1.5, "zero": 0.0, "negative": -42.0},
-    "expected": "{\"float\":1.5,\"negative\":-42,\"zero\":0}"
+  "conformance_legend": {
+    "pass": "atl-core produces the RFC-mandated output for this input.",
+    "known_divergence": "atl-core does NOT produce the RFC-mandated output for this input. The RFC value is recorded unchanged in `expected`; it was deliberately not adjusted to match atl-core. `atl_core_actual` pins what atl-core emits instead. The test suite asserts BOTH that the output still differs from `expected` and that it still equals `atl_core_actual`, so the case fails on a repair (remove the marker) and equally on a new, different bug -- an assertion of mere inequality would have accepted any wrong answer at all.",
+    "atl_core_actual": "atl_core_actual is a REGRESSION PIN, not an expected value: it records the wrong output atl-core produces today, so that the test can tell a repair (output becomes the RFC value) apart from a fresh breakage (output becomes something else again). It is the one field in these vector files that is deliberately taken from the implementation, and it is only ever attached to a case already marked known_divergence. `expected` is never touched by it."
   },
-  {
-    "name": "empty_string_key",
-    "input": {"": "empty key", "a": "normal key"},
-    "expected": "{\"\":\"empty key\",\"a\":\"normal key\"}"
-  },
-  {
-    "name": "rfc8785_example",
-    "input": {
-      "numbers": [333333333.3333333, 1.0e30, 4.5, 6, 0.002, 0.000002]
+  "known_divergences": {
+    "exponential_notation_threshold": {
+      "summary": "atl-core never emits exponential notation, so every value whose ES6 rendering uses an exponent is serialized as a long plain-decimal string instead.",
+      "rfc_rule": "RFC 8785 Section 3.2.2.3 requires ECMA-262 Section 7.1.12.1 number-to-string, which switches to exponential form when the decimal exponent is >= 21 or <= -7, and which writes a '+' in a positive exponent (\"1e+30\", not \"1e30\").",
+      "implementation": "src/core/jcs.rs, format_float() delegates to Rust's f64 Display, which is shortest-round-trip but always positional, never exponential. Its exponential branch is therefore dead code, and that branch additionally strips the '+' from the exponent and so would be wrong in the opposite direction if it ever fired.",
+      "impact": "A receipt whose entry.metadata contains a number outside roughly 1e-6 .. 1e21 gets a metadata_hash that no RFC 8785-conformant implementation reproduces, which breaks third-party verification of that receipt.",
+      "example": {
+        "ieee754_hex": "444b1ae4d6e2ef50",
+        "rfc_8785": "1e+21",
+        "atl_core_currently": "1000000000000000000000"
+      }
     },
-    "expected": "{\"numbers\":[333333333.3333333,1e30,4.5,6,0.002,0.000002]}"
-  }
-]
+    "shortest_digit_tie_break": {
+      "summary": "For a value exactly between two shortest representations, ECMA-262 breaks the tie to even and Rust's Display does not.",
+      "rfc_rule": "RFC 8785 Section 3.2.2.3 requires the ECMA-262 Section 7.1.12.1 \"Note 2\" rule; the RFC's own Appendix B note (4) spells this row out: the value is exactly 1424953923781206.25 and rounds to the closest even digit.",
+      "impact": "Same class of failure as above: a divergent metadata_hash.",
+      "example": {
+        "ieee754_hex": "43143ff3c1cb0959",
+        "rfc_8785": "1424953923781206.2",
+        "atl_core_currently": "1424953923781206.3"
+      }
+    },
+    "json_float_parse_off_by_one_ulp": {
+      "summary": "A JSON number literal can be parsed into the double next to the correct one, so the value is already wrong before canonicalization ever runs. This is a PARSE-side divergence, unlike the other two entries here, which are serialization-side.",
+      "rfc_rule": "RFC 8785 Section 3.2.2 fixes the input literal 333333333.33333329 and Section 3.2.3 fixes its canonical output as 333333333.3333333. That output is the ES6 rendering of IEEE 754 0x41b3de4355555555, which RFC 8785 Appendix B lists; so the RFC requires the literal to parse to that double.",
+      "observed": "serde_json 1.0.151 parses 333333333.33333329 to 0x41b3de4355555554, one ULP below. Rust's own str::parse::<f64>, CPython float(), and ECMAScript all give 0x41b3de4355555555. atl-core then renders that wrong double correctly as 333333333.33333325 -- given 0x41b3de4355555555 directly it does emit 333333333.3333333, which is why the Appendix B row for that bit pattern passes while the worked example does not.",
+      "not_our_code": "The fault is in the JSON number parser in the serde_json dependency, not in src/core/jcs.rs. It cannot be fixed by correcting the canonicalizer; it needs either a fixed serde_json or a parser that is correctly rounded.",
+      "impact": "Worse than the serialization divergences: two implementations reading the SAME receipt bytes end up with different doubles in entry.metadata, hence different metadata_hash, hence different leaf hashes. The receipt does not have to contain an extreme value -- an ordinary 17-significant-digit decimal is enough.",
+      "example": {
+        "json_literal": "333333333.33333329",
+        "correctly_rounded_double": "41b3de4355555555",
+        "serde_json_gives": "41b3de4355555554",
+        "rfc_8785_canonical_output": "333333333.3333333",
+        "atl_core_currently": "333333333.33333325"
+      }
+    }
+  },
+  "canonicalization_cases": [
+    {
+      "name": "rfc8785_3_2_2_worked_example",
+      "source": "RFC 8785 Sections 3.2.2 (input) and 3.2.3 (output); output byte-checked against the Section 3.2.4 hexadecimal dump",
+      "origin": "rfc8785-published",
+      "input_json_text": "{\n  \"numbers\": [333333333.33333329, 1E30, 4.50,\n              2e-3, 0.000000000000000000000000001],\n  \"string\": \"\\u20ac$\\u000F\\u000aA'\\u0042\\u0022\\u005c\\\\\\\"\\/\",\n  \"literals\": [null, true, false]\n}",
+      "expected": "{\"literals\":[null,true,false],\"numbers\":[333333333.3333333,1e+30,4.5,0.002,1e-27],\"string\":\"€$\\u000f\\nA'B\\\"\\\\\\\\\\\"/\"}",
+      "conformance": "known_divergence",
+      "divergence": [
+        "exponential_notation_threshold",
+        "json_float_parse_off_by_one_ulp"
+      ],
+      "divergence_note": "Two independent causes. (1) Numbers 1E30 and 1e-27 must canonicalize to \"1e+30\" and \"1e-27\"; atl-core emits them positionally. (2) The literal 333333333.33333329 is parsed one ULP low by serde_json, so it renders as 333333333.33333325 instead of the required 333333333.3333333 -- a parse fault, not a formatting one. Key ordering, literals and string escaping in this example are all handled correctly.",
+      "atl_core_actual": "{\"literals\":[null,true,false],\"numbers\":[333333333.33333325,1000000000000000000000000000000,4.5,0.002,0.000000000000000000000000001],\"string\":\"€$\\u000f\\nA'B\\\"\\\\\\\\\\\"/\"}"
+    },
+    {
+      "name": "rfc8785_3_2_3_property_sorting",
+      "source": "RFC 8785 Section 3.2.3, \"The following JSON test data can be used for verifying the correctness of the sorting scheme\"; the RFC publishes the expected property order, and `expected` is that published order written out with Section 3.2.2.2 escaping",
+      "origin": "rfc8785-published",
+      "input_json_text": "{\n  \"\\u20ac\": \"Euro Sign\",\n  \"\\r\": \"Carriage Return\",\n  \"\\ufb33\": \"Hebrew Letter Dalet With Dagesh\",\n  \"1\": \"One\",\n  \"\\ud83d\\ude00\": \"Emoji: Grinning Face\",\n  \"\\u0080\": \"Control\",\n  \"\\u00f6\": \"Latin Small Letter O With Diaeresis\"\n}",
+      "expected": "{\"\\r\":\"Carriage Return\",\"1\":\"One\",\"\":\"Control\",\"ö\":\"Latin Small Letter O With Diaeresis\",\"€\":\"Euro Sign\",\"😀\":\"Emoji: Grinning Face\",\"דּ\":\"Hebrew Letter Dalet With Dagesh\"}",
+      "conformance": "pass",
+      "note": "Sorting is by UTF-16 code units, so U+FB33 sorts after U+1F600 even though U+1F600 has the larger code point: its UTF-16 form starts with the surrogate U+D83D, which is below U+FB33."
+    },
+    {
+      "name": "simple_object",
+      "source": "RFC 8785 Section 3.2.3 key sorting",
+      "origin": "rfc8785-derived",
+      "input_json_text": "{\"b\":2,\"a\":1}",
+      "expected": "{\"a\":1,\"b\":2}",
+      "conformance": "pass"
+    },
+    {
+      "name": "nested_object",
+      "source": "RFC 8785 Section 3.2.3 recursive sorting",
+      "origin": "rfc8785-derived",
+      "input_json_text": "{\"outer\":{\"b\":2,\"a\":1}}",
+      "expected": "{\"outer\":{\"a\":1,\"b\":2}}",
+      "conformance": "pass"
+    },
+    {
+      "name": "unicode_keys",
+      "source": "RFC 8785 Section 3.2.3 UTF-16 code unit order",
+      "origin": "rfc8785-derived",
+      "input_json_text": "{\"é\":1,\"e\":2}",
+      "expected": "{\"e\":2,\"é\":1}",
+      "conformance": "pass"
+    },
+    {
+      "name": "empty_object",
+      "source": "RFC 8785 Section 3.2.1 whitespace removal",
+      "origin": "rfc8785-derived",
+      "input_json_text": "{}",
+      "expected": "{}",
+      "conformance": "pass"
+    },
+    {
+      "name": "empty_array",
+      "source": "RFC 8785 Section 3.2.1 whitespace removal",
+      "origin": "rfc8785-derived",
+      "input_json_text": "[]",
+      "expected": "[]",
+      "conformance": "pass"
+    },
+    {
+      "name": "array_order_preserved",
+      "source": "RFC 8785 Section 3.2.3: array element order MUST NOT change, but objects inside are sorted",
+      "origin": "rfc8785-derived",
+      "input_json_text": "[{\"b\":2,\"a\":1},{\"d\":4,\"c\":3}]",
+      "expected": "[{\"a\":1,\"b\":2},{\"c\":3,\"d\":4}]",
+      "conformance": "pass"
+    },
+    {
+      "name": "null_value",
+      "source": "RFC 8785 Section 3.2.2.1 literals",
+      "origin": "rfc8785-derived",
+      "input_json_text": "null",
+      "expected": "null",
+      "conformance": "pass"
+    },
+    {
+      "name": "boolean_values",
+      "source": "RFC 8785 Section 3.2.2.1 literals",
+      "origin": "rfc8785-derived",
+      "input_json_text": "{\"false\":false,\"true\":true}",
+      "expected": "{\"false\":false,\"true\":true}",
+      "conformance": "pass"
+    },
+    {
+      "name": "string_escaping",
+      "source": "RFC 8785 Section 3.2.2.2 string escaping",
+      "origin": "rfc8785-derived",
+      "input_json_text": "{\"quote\":\"a\\\"b\",\"backslash\":\"a\\\\b\",\"newline\":\"a\\nb\"}",
+      "expected": "{\"backslash\":\"a\\\\b\",\"newline\":\"a\\nb\",\"quote\":\"a\\\"b\"}",
+      "conformance": "pass"
+    },
+    {
+      "name": "unicode_not_escaped",
+      "source": "RFC 8785 Section 3.2.2.2: values outside U+0000-U+001F are emitted as is",
+      "origin": "rfc8785-derived",
+      "input_json_text": "{\"text\":\"café 日本語 😀\"}",
+      "expected": "{\"text\":\"café 日本語 😀\"}",
+      "conformance": "pass"
+    },
+    {
+      "name": "nested_arrays",
+      "source": "RFC 8785 Section 3.2.1 whitespace removal",
+      "origin": "rfc8785-derived",
+      "input_json_text": "[[1,2],[3,4]]",
+      "expected": "[[1,2],[3,4]]",
+      "conformance": "pass"
+    },
+    {
+      "name": "control_characters",
+      "source": "RFC 8785 Section 3.2.2.2: U+0000-U+001F use lowercase \\uhhhh unless one of \\b \\t \\n \\f \\r",
+      "origin": "rfc8785-derived",
+      "input_json_text": "{\"c\":\"\\u0000\\u0001\\u001f\"}",
+      "expected": "{\"c\":\"\\u0000\\u0001\\u001f\"}",
+      "conformance": "pass"
+    },
+    {
+      "name": "named_control_escapes",
+      "source": "RFC 8785 Section 3.2.2.2: U+0008, U+0009, U+000A, U+000C, U+000D use the named escapes",
+      "origin": "rfc8785-derived",
+      "input_json_text": "{\"c\":\"\\b\\t\\n\\f\\r\"}",
+      "expected": "{\"c\":\"\\b\\t\\n\\f\\r\"}",
+      "conformance": "pass"
+    },
+    {
+      "name": "empty_key_sorts_first",
+      "source": "RFC 8785 Section 3.2.3: the shorter string precedes the longer when it is a prefix",
+      "origin": "rfc8785-derived",
+      "input_json_text": "{\"a\":1,\"\":2}",
+      "expected": "{\"\":2,\"a\":1}",
+      "conformance": "pass"
+    }
+  ],
+  "number_serialization_cases": [
+    {
+      "ieee754_hex": "0000000000000000",
+      "expected": "0",
+      "source": "RFC 8785 Appendix B, Table 1",
+      "origin": "rfc8785-published",
+      "conformance": "pass",
+      "comment": "Zero"
+    },
+    {
+      "ieee754_hex": "8000000000000000",
+      "expected": "0",
+      "source": "RFC 8785 Appendix B, Table 1",
+      "origin": "rfc8785-published",
+      "conformance": "pass",
+      "comment": "Minus zero"
+    },
+    {
+      "ieee754_hex": "0000000000000001",
+      "expected": "5e-324",
+      "source": "RFC 8785 Appendix B, Table 1",
+      "origin": "rfc8785-published",
+      "conformance": "known_divergence",
+      "comment": "Min pos number",
+      "divergence": [
+        "exponential_notation_threshold"
+      ],
+      "atl_core_actual": "0.000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005"
+    },
+    {
+      "ieee754_hex": "8000000000000001",
+      "expected": "-5e-324",
+      "source": "RFC 8785 Appendix B, Table 1",
+      "origin": "rfc8785-published",
+      "conformance": "known_divergence",
+      "comment": "Min neg number",
+      "divergence": [
+        "exponential_notation_threshold"
+      ],
+      "atl_core_actual": "-0.000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005"
+    },
+    {
+      "ieee754_hex": "7fefffffffffffff",
+      "expected": "1.7976931348623157e+308",
+      "source": "RFC 8785 Appendix B, Table 1",
+      "origin": "rfc8785-published",
+      "conformance": "known_divergence",
+      "comment": "Max pos number",
+      "divergence": [
+        "exponential_notation_threshold"
+      ],
+      "atl_core_actual": "179769313486231570000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "ieee754_hex": "ffefffffffffffff",
+      "expected": "-1.7976931348623157e+308",
+      "source": "RFC 8785 Appendix B, Table 1",
+      "origin": "rfc8785-published",
+      "conformance": "known_divergence",
+      "comment": "Max neg number",
+      "divergence": [
+        "exponential_notation_threshold"
+      ],
+      "atl_core_actual": "-179769313486231570000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "ieee754_hex": "4340000000000000",
+      "expected": "9007199254740992",
+      "source": "RFC 8785 Appendix B, Table 1",
+      "origin": "rfc8785-published",
+      "conformance": "pass",
+      "comment": "Max pos int"
+    },
+    {
+      "ieee754_hex": "c340000000000000",
+      "expected": "-9007199254740992",
+      "source": "RFC 8785 Appendix B, Table 1",
+      "origin": "rfc8785-published",
+      "conformance": "pass",
+      "comment": "Max neg int"
+    },
+    {
+      "ieee754_hex": "4430000000000000",
+      "expected": "295147905179352830000",
+      "source": "RFC 8785 Appendix B, Table 1",
+      "origin": "rfc8785-published",
+      "conformance": "pass",
+      "comment": "~2**68"
+    },
+    {
+      "ieee754_hex": "44b52d02c7e14af5",
+      "expected": "9.999999999999997e+22",
+      "source": "RFC 8785 Appendix B, Table 1",
+      "origin": "rfc8785-published",
+      "conformance": "known_divergence",
+      "divergence": [
+        "exponential_notation_threshold"
+      ],
+      "atl_core_actual": "99999999999999970000000"
+    },
+    {
+      "ieee754_hex": "44b52d02c7e14af6",
+      "expected": "1e+23",
+      "source": "RFC 8785 Appendix B, Table 1",
+      "origin": "rfc8785-published",
+      "conformance": "known_divergence",
+      "divergence": [
+        "exponential_notation_threshold"
+      ],
+      "atl_core_actual": "100000000000000000000000"
+    },
+    {
+      "ieee754_hex": "44b52d02c7e14af7",
+      "expected": "1.0000000000000001e+23",
+      "source": "RFC 8785 Appendix B, Table 1",
+      "origin": "rfc8785-published",
+      "conformance": "known_divergence",
+      "divergence": [
+        "exponential_notation_threshold"
+      ],
+      "atl_core_actual": "100000000000000010000000"
+    },
+    {
+      "ieee754_hex": "444b1ae4d6e2ef4e",
+      "expected": "999999999999999700000",
+      "source": "RFC 8785 Appendix B, Table 1",
+      "origin": "rfc8785-published",
+      "conformance": "pass"
+    },
+    {
+      "ieee754_hex": "444b1ae4d6e2ef4f",
+      "expected": "999999999999999900000",
+      "source": "RFC 8785 Appendix B, Table 1",
+      "origin": "rfc8785-published",
+      "conformance": "pass"
+    },
+    {
+      "ieee754_hex": "444b1ae4d6e2ef50",
+      "expected": "1e+21",
+      "source": "RFC 8785 Appendix B, Table 1",
+      "origin": "rfc8785-published",
+      "conformance": "known_divergence",
+      "divergence": [
+        "exponential_notation_threshold"
+      ],
+      "atl_core_actual": "1000000000000000000000"
+    },
+    {
+      "ieee754_hex": "3eb0c6f7a0b5ed8c",
+      "expected": "9.999999999999997e-7",
+      "source": "RFC 8785 Appendix B, Table 1",
+      "origin": "rfc8785-published",
+      "conformance": "known_divergence",
+      "divergence": [
+        "exponential_notation_threshold"
+      ],
+      "atl_core_actual": "0.0000009999999999999997"
+    },
+    {
+      "ieee754_hex": "3eb0c6f7a0b5ed8d",
+      "expected": "0.000001",
+      "source": "RFC 8785 Appendix B, Table 1",
+      "origin": "rfc8785-published",
+      "conformance": "pass"
+    },
+    {
+      "ieee754_hex": "41b3de4355555553",
+      "expected": "333333333.3333332",
+      "source": "RFC 8785 Appendix B, Table 1",
+      "origin": "rfc8785-published",
+      "conformance": "pass"
+    },
+    {
+      "ieee754_hex": "41b3de4355555554",
+      "expected": "333333333.33333325",
+      "source": "RFC 8785 Appendix B, Table 1",
+      "origin": "rfc8785-published",
+      "conformance": "pass"
+    },
+    {
+      "ieee754_hex": "41b3de4355555555",
+      "expected": "333333333.3333333",
+      "source": "RFC 8785 Appendix B, Table 1",
+      "origin": "rfc8785-published",
+      "conformance": "pass"
+    },
+    {
+      "ieee754_hex": "41b3de4355555556",
+      "expected": "333333333.3333334",
+      "source": "RFC 8785 Appendix B, Table 1",
+      "origin": "rfc8785-published",
+      "conformance": "pass"
+    },
+    {
+      "ieee754_hex": "41b3de4355555557",
+      "expected": "333333333.33333343",
+      "source": "RFC 8785 Appendix B, Table 1",
+      "origin": "rfc8785-published",
+      "conformance": "pass"
+    },
+    {
+      "ieee754_hex": "becbf647612f3696",
+      "expected": "-0.0000033333333333333333",
+      "source": "RFC 8785 Appendix B, Table 1",
+      "origin": "rfc8785-published",
+      "conformance": "pass"
+    },
+    {
+      "ieee754_hex": "43143ff3c1cb0959",
+      "expected": "1424953923781206.2",
+      "source": "RFC 8785 Appendix B, Table 1",
+      "origin": "rfc8785-published",
+      "conformance": "known_divergence",
+      "comment": "Round to even",
+      "divergence": [
+        "shortest_digit_tie_break"
+      ],
+      "atl_core_actual": "1424953923781206.3"
+    }
+  ]
+}
