@@ -7,14 +7,28 @@ on:
     paths:
       - '**/Cargo.toml'
       - '**/Cargo.lock'
+      # An ignore added here silences an advisory, so it must re-run the audit.
+      - '.cargo/audit.toml'
   workflow_dispatch:
 
 jobs:
   audit:
     name: Audit
     runs-on: ubuntu-latest
+    # The action publishes its result as a check run, which the default token
+    # cannot create on a workflow_dispatch run without this.
+    permissions:
+      checks: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
+      # Install cargo-audit ourselves, with --locked. Left to the action it
+      # resolves cargo-audit's dependencies to latest, which as of 2026-09-03
+      # picks a tinyvec that does not compile, so the job fails before any
+      # advisory is read. --locked uses cargo-audit's own lockfile instead.
+      # The action skips its install step when the binary is already present.
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
