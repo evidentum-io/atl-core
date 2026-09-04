@@ -72,6 +72,142 @@ outside roughly 1e-6..1e21, an exact shortest-digit tie, or a
 reproduces. That is fixed rather than grandfathered; see CHANGELOG.md for why
 no receipt is affected.
 
+## Verifying anchors: read the facts, not a boolean
+
+`ReceiptVerifier::verify` answers "is this receipt acceptable" and collapses
+each anchor to `is_valid: bool`. That boolean cannot tell you whether an anchor
+was **checked and found false** or **not checked at all** — a missing trust
+root, an unimplemented algorithm, a Bitcoin block nobody fetched. Those call
+for opposite reactions, and a verifier that reports the second as the first is
+publishing an accusation it cannot support.
+
+Use `verify_receipt_anchors` when you need to say *why*:
+
+```rust,ignore
+use atl_core::{verify_receipt_anchors, Receipt, VerifyOptions};
+
+let receipt = Receipt::from_json(&json)?;
+
+for anchor in verify_receipt_anchors(&receipt, &VerifyOptions::default()) {
+    if anchor.is_refuted() {
+        // A fact about THIS ANCHOR was checked and is false. Report it: an
+        // anchor is something anybody who relayed the receipt could have
+        // appended, so a refuted one is evidence that somebody interfered.
+        // It is NOT evidence against the receipt — see below.
+        for finding in anchor.refutations() {
+            eprintln!("{}: {finding}", anchor.anchor_type());
+        }
+    } else if anchor.is_indeterminate() {
+        // Nothing was refuted; this check could not be finished. Do NOT
+        // present it as a broken anchor either.
+        for finding in anchor.inabilities() {
+            eprintln!("{}: {finding}", anchor.anchor_type());
+        }
+    }
+}
+
+// The receipt's own verdict is a separate question, and no anchor finding
+// takes part in it: `ReceiptVerifier::verify`, read through
+// `VerificationResult::receipt_errors()`.
+```
+
+The three predicates partition, every finding is a `VerificationError` that
+answers `is_refutation()` for itself, and the full RFC 3161 / OpenTimestamps
+fact sets ride along in `AnchorFacts::evidence()` so nothing has to be
+recomputed. **Any refutation outranks every inability**: `is_refuted()` is a
+question about the whole finding set, never about the first one met.
+
+## What `is_valid` means
+
+`VerificationResult::is_valid` is acceptance, and since 0.29 it means what it
+says. ATL v2.0 §5.5 — "At least one anchor MUST be verified to establish trust
+in the receipt" — is enforced literally:
+
+- **enough verified anchors** — `max(1, min_valid_anchors)` of them; §5.5's
+  floor is one and a caller may raise it but never lower it. The log operator's
+  own checkpoint signature is not an anchor: §5.4 calls it "an integrity check,
+  not a trust establishment" and §1.2 derives trust "exclusively from external,
+  independent anchors". A shortfall is reported once, as
+  `NoTrustAnchor { required, verified }`, and is an *inability* — not enough was
+  proved, nothing was disproved;
+- **nothing may be wrong with the receipt itself** — its inclusion proof, its
+  Super-Tree proofs, `metadata_hash`, the provenance of its bytes. "The receipt
+  itself" is exact: see below;
+- **a receipt with no anchors is not accepted** — and not refuted either. It is
+  `is_indeterminate()` with `NoTrustAnchor`: nothing about it was shown false,
+  it was simply never attested to by anything outside the log. §5.6's own table
+  calls that tier "internal consistency only".
+
+### An anchor that fails verification is reported, and vetoes nothing
+
+§5.5 sets a *threshold* — at least one verified anchor — and says nothing about
+the others. That is not a detail to paper over, because **a receipt does not
+authenticate its own anchors**: the leaf hash is `SHA256(0x00 || payload_hash
+|| metadata_hash)` and the checkpoint blob is 98 bytes of origin, tree size,
+timestamp and root hash. The `anchors` array is in neither. Anybody who relays
+a receipt can append an anchor to it, with no key at all.
+
+If an appended anchor that *fails* verification could veto acceptance, one
+malformed token would destroy the verification of a receipt carrying a flawless
+independent anchor — a denial of verification available to every relay, for
+free. An anchor nobody could verify reports on itself and on nothing else; it
+cannot undo an existence in time that another anchor established.
+
+So an anchor that fails verification changes **no status this crate reports
+about the receipt** — not `is_valid`, and not `is_indeterminate` either.
+Scoping only `is_valid` would have left the same defect one storey up: a
+stranger could not make a receipt invalid, but could still flip it from *trust
+could not be established* to *this evidence is disproved*, which is an
+accusation manufactured for free against a document nothing had disproved.
+
+**The guarantee is one-sided, and only the one side holds.** An anchor that
+*passes* verification raises the verified count and can carry a receipt over
+the threshold — at `min_valid_anchors: 2`, a receipt with one verified anchor
+reports `NoTrustAnchor { required: 2, verified: 1 }` and a second verified
+anchor clears it. That is not a gap: it is what anchors are for, and a verifier
+in which anchors changed nothing would be worthless. The asymmetry mirrors the
+capability. Appending rubbish costs nothing; producing an anchor that verifies
+needs a timestamp token over *this* receipt's root, chaining to a trust root
+*you* supplied.
+
+A receipt whose only anchor is refuted is therefore reported as **unattested**,
+not as refuted. Its own facts are untouched; what was found false is an
+attachment anybody could have added. And that is the only answer a stranger
+cannot steer.
+
+**It is never hidden.** The finding stays in `VerificationResult::errors`,
+wrapped in `VerificationError::AnchorFinding { index, anchor_type, finding }`,
+still answering `is_refutation()` as a refutation *of the anchor*. An appended
+anchor is evidence that somebody interfered with the receipt, and a consumer
+that drops it because it did not change the verdict is concealing the very
+thing it reveals.
+
+`VerificationError::is_about_the_receipt()` draws the line, and
+`VerificationResult` gives both sides of it directly:
+
+| what you want | what to read |
+|---|---|
+| decide anything | `receipt_errors()` — the errors every status is computed from |
+| show the tampering | `anchor_findings()` — never empty-handed, never load-bearing |
+| show everything | `errors()` — both, in the order found |
+
+Nothing derived from the full `errors()` list is safe to branch on: an anchor
+anybody could have appended adds to it, and where in the `anchors` array it sits
+decides where its finding lands.
+
+Because a `bitcoin_ots` anchor is never verified without a block header, a
+receipt whose only anchor is a Bitcoin one is never accepted by this crate
+alone. That is not a limitation to route around: it is the honest report of
+what an offline verifier established.
+
+Two things this crate cannot answer, by design — it performs no I/O:
+
+- a `bitcoin_ots` anchor is never `is_verified()`, because the block header
+  whose Merkle root would confirm the OTS proof was never obtained
+  (`BitcoinBlockNotObtained`), and neither was the block time ATL v2.0 §5.5.2
+  step 5 asks about;
+- revocation is never checked (`Revocation::NotChecked`).
+
 ## Upgrading to 0.26
 
 `PathStatus` gained a variant, `Indeterminate`, and the meaning of the

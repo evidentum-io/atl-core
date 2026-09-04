@@ -6,9 +6,9 @@
 use crate::core::checkpoint::{parse_hash, parse_signature, Checkpoint, CheckpointVerifier};
 use crate::core::jcs::canonicalize_and_hash;
 use crate::core::merkle::{compute_leaf_hash, verify_inclusion, InclusionProof};
-use crate::core::receipt::{
-    format_hash, ReceiptAnchor, ANCHOR_TARGET_DATA_TREE_ROOT, ANCHOR_TARGET_SUPER_ROOT,
-};
+#[cfg(test)]
+use crate::core::receipt::ReceiptAnchor;
+use crate::core::receipt::{format_hash, ANCHOR_TARGET_DATA_TREE_ROOT, ANCHOR_TARGET_SUPER_ROOT};
 
 use super::{AnchorVerificationResult, VerificationError};
 
@@ -220,42 +220,105 @@ pub fn verify_checkpoint_signature(
 /// For Bitcoin OTS anchors:
 /// - `target` MUST be `"super_root"` (ERROR if absent or different)
 /// - `target_hash` MUST match `context.super_root` (ERROR if absent or mismatch)
+/// # One implementation, two shapes
+///
+/// The checks themselves live in [`super::facts::anchor_facts`], which reports
+/// them as a fact set rather than a boolean. This function is the adapter that
+/// keeps [`AnchorVerificationResult`]'s long-standing shape: there is no
+/// second copy of ATL Section 5.5 behind it, so a defect fixed for
+/// [`verify_receipt_anchors`](super::facts::verify_receipt_anchors) is fixed
+/// here too.
+///
+/// The receipt-level verifier no longer routes through here -- it takes the
+/// whole `Vec<AnchorFacts>` and projects each one -- so this remains as the
+/// single-anchor entry point the tests exercise. It was never reachable from
+/// outside the crate.
+#[cfg(test)]
 pub fn verify_anchor(
     anchor: &ReceiptAnchor,
     context: &AnchorVerificationContext,
 ) -> AnchorVerificationResult {
-    match anchor {
-        ReceiptAnchor::Rfc3161 { target, target_hash, timestamp, token_der, .. } => {
-            verify_rfc3161_anchor(target, target_hash, timestamp, token_der, context)
-        }
-        ReceiptAnchor::BitcoinOts {
-            target,
-            target_hash,
-            timestamp,
-            bitcoin_block_height,
-            ots_proof,
-            ..
-        } => verify_bitcoin_ots_anchor(
-            target,
-            target_hash,
-            timestamp,
-            *bitcoin_block_height,
-            ots_proof,
-            context,
-        ),
+    // The root this anchor must pin to, taken from the context the caller
+    // already resolved. `verify_receipt_anchors` resolves it from the receipt
+    // instead; the pinning comparison itself is the same code either way.
+    let expected_root = match anchor {
+        ReceiptAnchor::Rfc3161 { .. } => Ok(context.data_tree_root),
+        ReceiptAnchor::BitcoinOts { .. } => Ok(context.super_root),
+    };
+
+    #[allow(unused_mut)]
+    let mut options = super::types::VerifyOptions::default();
+    #[cfg(feature = "rfc3161-verify")]
+    {
+        options.rfc3161_trust_store = context.rfc3161_trust_store.clone();
+    }
+
+    let facts = super::facts::anchor_facts(anchor, expected_root, &options);
+    anchor_result_from_facts(&facts)
+}
+
+/// Project an [`AnchorFacts`](super::facts::AnchorFacts) onto the
+/// [`AnchorVerificationResult`] shape callers have had since 0.5.
+///
+/// # `is_valid` means [`AnchorFacts::is_verified`] and nothing looser
+///
+/// There is no carve-out. An anchor is `is_valid` when **every** check about
+/// it came out verified; a refutation and an unfinished check both make it
+/// `false`, and the fact set says which.
+///
+/// Up to and including 0.28 this projection tolerated one inability:
+/// `atl-core` performs no I/O, so it never obtains the Bitcoin block header
+/// whose Merkle root would confirm an OTS proof, and a `bitcoin_ots` anchor
+/// was nevertheless reported `is_valid: true` on the strength of a proof
+/// nothing had compared against a block. Preserving that for compatibility
+/// would have kept a verdict the crate's own facts contradict, so it is gone.
+/// A `bitcoin_ots` anchor is `is_valid: false` from this crate under every
+/// input — see [`VerificationError::BitcoinBlockNotObtained`] — and a caller
+/// that fetches headers resolves it on its own side.
+pub(in crate::core) fn anchor_result_from_facts(
+    facts: &super::facts::AnchorFacts,
+) -> AnchorVerificationResult {
+    let is_valid = facts.is_verified();
+
+    let error = if is_valid { None } else { Some(anchor_error_from_facts(facts)) };
+
+    AnchorVerificationResult {
+        anchor_type: facts.anchor_type().to_string(),
+        is_valid,
+        // A time is established only by an anchor every one of whose checks
+        // passed -- which a `bitcoin_ots` anchor never is here, because the
+        // confirming block header was not fetched. The claim is never
+        // discarded; it moves to `claimed_timestamp`.
+        timestamp: facts.established_timestamp(),
+        claimed_timestamp: facts.claimed_timestamp(),
+        error,
     }
 }
 
-/// Verify RFC 3161 anchor with MANDATORY target validation
+/// The human-readable elaboration [`AnchorVerificationResult::error`] has
+/// always carried. Never load-bearing: branch on the facts, not on this text.
+fn anchor_error_from_facts(facts: &super::facts::AnchorFacts) -> String {
+    // An RFC 3161 token that decoded gets the dedicated prose, which explains
+    // the fact set as a whole rather than listing it.
+    #[cfg(feature = "rfc3161-verify")]
+    if let super::facts::AnchorEvidence::Rfc3161(token_facts) = facts.evidence() {
+        return super::anchors::rfc3161::summarize(token_facts);
+    }
+
+    let findings = facts.findings();
+    if findings.is_empty() {
+        return "verification did not reach aggregate success".to_string();
+    }
+    findings.iter().map(ToString::to_string).collect::<Vec<_>>().join("; ")
+}
+
+/// Verify one RFC 3161 anchor given its fields, for the tests that exercise
+/// ATL Section 5.5.1 steps 1-2 field by field.
 ///
-/// Per ATL Protocol v2.0 Section 5.5.1:
-/// 1. Verify that `anchor.target` equals `"data_tree_root"` (REQUIRED)
-/// 2. Verify that `anchor.target_hash` equals `proof.root_hash` (REQUIRED)
-/// 3. Decode `token_der` (ASN.1 DER)
-/// 4. Verify TSA signature
-/// 5. Verify `MessageImprint` matches `target_hash`
-///
-/// NO FALLBACKS: Missing target or `target_hash` = ERROR.
+/// A thin adapter over [`verify_anchor`]: it assembles the anchor and runs the
+/// same code every caller runs. `tsa_url` is not part of any check, so a
+/// placeholder is supplied.
+#[cfg(test)]
 fn verify_rfc3161_anchor(
     target: &str,
     target_hash: &str,
@@ -263,138 +326,21 @@ fn verify_rfc3161_anchor(
     token_der: &str,
     context: &AnchorVerificationContext,
 ) -> AnchorVerificationResult {
-    use super::parse_iso8601_to_nanos;
-
-    // 1. Validate target is "data_tree_root" (REQUIRED)
-    if target != ANCHOR_TARGET_DATA_TREE_ROOT {
-        return AnchorVerificationResult {
-            anchor_type: "rfc3161".to_string(),
-            is_valid: false,
-            timestamp: None,
-            claimed_timestamp: parse_iso8601_to_nanos(timestamp),
-            error: Some(format!("RFC 3161 anchor target must be 'data_tree_root', got '{target}'")),
-        };
-    }
-
-    // 2. Get expected hash for target
-    let expected_root = &context.data_tree_root;
-
-    // 3. Parse and validate target_hash (REQUIRED)
-    let parsed_target_hash = match parse_hash_string(target_hash) {
-        Ok(hash) => hash,
-        Err(e) => {
-            return AnchorVerificationResult {
-                anchor_type: "rfc3161".to_string(),
-                is_valid: false,
-                timestamp: None,
-                claimed_timestamp: parse_iso8601_to_nanos(timestamp),
-                error: Some(format!("invalid target_hash format: {e}")),
-            };
-        }
-    };
-
-    // 4. Validate target_hash matches expected (REQUIRED)
-    if !use_constant_time_eq(&parsed_target_hash, expected_root) {
-        return AnchorVerificationResult {
-            anchor_type: "rfc3161".to_string(),
-            is_valid: false,
-            timestamp: None,
-            claimed_timestamp: parse_iso8601_to_nanos(timestamp),
-            error: Some(format!(
-                "target_hash mismatch: anchor has {target_hash}, expected {}",
-                format_hash(expected_root)
-            )),
-        };
-    }
-
-    // 5. Proceed with cryptographic verification using expected_root. The
-    // trust store, if any, comes only from the caller's VerifyOptions --
-    // never from anything inside the receipt or the token.
-    #[cfg(feature = "rfc3161-verify")]
-    {
-        verify_rfc3161_anchor_impl(
-            timestamp,
-            token_der,
-            expected_root,
-            context.rfc3161_trust_store.as_ref(),
-        )
-    }
-    #[cfg(not(feature = "rfc3161-verify"))]
-    {
-        verify_rfc3161_anchor_impl(timestamp, token_der, expected_root)
-    }
+    verify_anchor(
+        &ReceiptAnchor::Rfc3161 {
+            target: target.to_string(),
+            target_hash: target_hash.to_string(),
+            tsa_url: String::new(),
+            timestamp: timestamp.to_string(),
+            token_der: token_der.to_string(),
+        },
+        context,
+    )
 }
 
-/// Constant-time hash comparison
-fn use_constant_time_eq(a: &Hash, b: &Hash) -> bool {
-    use subtle::ConstantTimeEq;
-    a.ct_eq(b).into()
-}
-
-/// Parse hash string `"sha256:..."` to 32-byte array
-fn parse_hash_string(s: &str) -> Result<Hash, String> {
-    parse_hash(s).map_err(|e| e.to_string())
-}
-
-/// Verify RFC 3161 anchor implementation (with feature flag)
-#[cfg(feature = "rfc3161-verify")]
-pub fn verify_rfc3161_anchor_impl(
-    timestamp: &str,
-    token_der: &str,
-    expected_root: &[u8; 32],
-    trust_store: Option<&crate::core::verify::anchors::rfc3161::TrustStore>,
-) -> AnchorVerificationResult {
-    use super::anchors::rfc3161::verify_rfc3161_anchor_impl;
-    verify_rfc3161_anchor_impl(timestamp, token_der, expected_root, trust_store)
-}
-
-/// Verify RFC 3161 anchor implementation (without feature flag)
-#[cfg(not(feature = "rfc3161-verify"))]
-pub fn verify_rfc3161_anchor_impl(
-    timestamp: &str,
-    _token_der: &str,
-    _expected_root: &[u8; 32],
-) -> AnchorVerificationResult {
-    use super::parse_iso8601_to_nanos;
-
-    AnchorVerificationResult {
-        anchor_type: "rfc3161".to_string(),
-        is_valid: false,
-        // The feature is compiled out, so nothing was verified and nothing
-        // is established -- least of all a time.
-        timestamp: None,
-        claimed_timestamp: parse_iso8601_to_nanos(timestamp),
-        error: Some("RFC 3161 verification requires 'rfc3161-verify' feature".to_string()),
-    }
-}
-
-/// Verify Bitcoin OTS anchor with MANDATORY target validation
-///
-/// Per ATL Protocol v2.0 Section 5.5.2:
-/// 1. Verify that `anchor.target` equals `"super_root"` (REQUIRED)
-/// 2. Verify that `anchor.target_hash` equals `super_proof.super_root` (REQUIRED)
-/// 3. Decode `ots_proof` (`OpenTimestamps` binary format)
-/// 4. Verify the OTS proof chain from `target_hash` to the Bitcoin block
-/// 5. Verify that `bitcoin_block_height` and `bitcoin_block_time` match the
-///    proof
-///
-/// # Step 5 splits in two, and only one half belongs in this crate
-///
-/// The height is carried by the proof itself -- an `OpenTimestamps` Bitcoin
-/// attestation encodes it -- so `bitcoin_block_height` can be compared with
-/// what the proof says by pure computation, and is compared here. A receipt
-/// naming a height its own proof contradicts is **refuted**, not merely
-/// unconfirmed.
-///
-/// The block *time* is nowhere in the proof. Establishing it means obtaining
-/// the block header, which is I/O this crate does not perform, so the
-/// `bitcoin_block_time` half of step 5 cannot be carried out here and is
-/// deliberately not attempted: reporting a comparison that never ran is the
-/// one thing worse than not running it. A caller that does fetch headers
-/// (`atl-cli`) completes that half.
-///
-/// NO FALLBACKS: Missing target or `target_hash` = ERROR.
-/// OTS anchors MUST target `"super_root"` (not `"data_tree_root"`).
+/// The Bitcoin OTS counterpart of [`verify_rfc3161_anchor`], for the tests
+/// that exercise ATL Section 5.5.2 steps 1-2 and step 5's height half.
+#[cfg(test)]
 fn verify_bitcoin_ots_anchor(
     target: &str,
     target_hash: &str,
@@ -403,148 +349,17 @@ fn verify_bitcoin_ots_anchor(
     ots_proof: &str,
     context: &AnchorVerificationContext,
 ) -> AnchorVerificationResult {
-    use super::parse_iso8601_to_nanos;
-
-    // 1. Validate target is "super_root" (REQUIRED)
-    if target != ANCHOR_TARGET_SUPER_ROOT {
-        return AnchorVerificationResult {
-            anchor_type: "bitcoin_ots".to_string(),
-            is_valid: false,
-            timestamp: None,
-            claimed_timestamp: parse_iso8601_to_nanos(timestamp),
-            error: Some(format!("Bitcoin OTS anchor target must be 'super_root', got '{target}'")),
-        };
-    }
-
-    // 2. Get expected hash for target
-    let expected_root = &context.super_root;
-
-    // 3. Parse and validate target_hash (REQUIRED)
-    let parsed_target_hash = match parse_hash_string(target_hash) {
-        Ok(hash) => hash,
-        Err(e) => {
-            return AnchorVerificationResult {
-                anchor_type: "bitcoin_ots".to_string(),
-                is_valid: false,
-                timestamp: None,
-                claimed_timestamp: parse_iso8601_to_nanos(timestamp),
-                error: Some(format!("invalid target_hash format: {e}")),
-            };
-        }
-    };
-
-    // 4. Validate target_hash matches expected (REQUIRED)
-    if !use_constant_time_eq(&parsed_target_hash, expected_root) {
-        return AnchorVerificationResult {
-            anchor_type: "bitcoin_ots".to_string(),
-            is_valid: false,
-            timestamp: None,
-            claimed_timestamp: parse_iso8601_to_nanos(timestamp),
-            error: Some(format!(
-                "target_hash mismatch: anchor has {target_hash}, expected {}",
-                format_hash(expected_root)
-            )),
-        };
-    }
-
-    // 5. Proceed with cryptographic verification using expected_root, and
-    //    with the height the receipt claims for the proof to be checked
-    //    against.
-    verify_bitcoin_ots_anchor_impl(timestamp, ots_proof, expected_root, claimed_block_height)
-}
-
-/// Verify Bitcoin OTS anchor implementation (with feature flag)
-#[cfg(feature = "bitcoin-ots")]
-pub fn verify_bitcoin_ots_anchor_impl(
-    timestamp: &str,
-    ots_proof: &str,
-    expected_root: &[u8; 32],
-    claimed_block_height: u64,
-) -> AnchorVerificationResult {
-    use super::anchors::bitcoin_ots::verify_ots_anchor_impl;
-
-    match verify_ots_anchor_impl(ots_proof, expected_root) {
-        Ok(result) => {
-            // ATL v2.0 §5.5.2 step 5, height half: the receipt states a
-            // block height for this anchor, and the proof attests to one or
-            // more. Comparing them needs no network, so an offline verifier
-            // that skips it publishes an unchecked assertion of the
-            // receipt's -- a receipt could name block 900000 while carrying
-            // a proof that attests to 932897, and nothing would notice.
-            //
-            // The rule -- the claim holds if it matches ANY attestation --
-            // lives in `attestation_for_claimed_height` and is not restated
-            // here. It was once an inline `min()`, a criterion the
-            // specification never sets, under which a receipt naming a
-            // height genuinely present in its own proof could be declared
-            // refuted.
-            let attested = crate::core::ots::attestation_for_claimed_height(
-                &result.attestations,
-                claimed_block_height,
-            );
-            if attested.is_some() {
-                return AnchorVerificationResult {
-                    anchor_type: "bitcoin_ots".to_string(),
-                    is_valid: true,
-                    // This crate performs no I/O, so it never learns the
-                    // confirming block's time -- and the receipt's own field
-                    // is the anchor's claim, not the block's. Establishing
-                    // it needs the network, and so does the
-                    // `bitcoin_block_time` half of step 5.
-                    timestamp: None,
-                    claimed_timestamp: super::parse_iso8601_to_nanos(timestamp),
-                    error: None,
-                };
-            }
-
-            let heights = crate::core::ots::attested_block_heights(&result.attestations)
-                .iter()
-                .map(u64::to_string)
-                .collect::<Vec<_>>()
-                .join(", ");
-            AnchorVerificationResult {
-                anchor_type: "bitcoin_ots".to_string(),
-                is_valid: false,
-                timestamp: None,
-                claimed_timestamp: super::parse_iso8601_to_nanos(timestamp),
-                // Every attested height is named, not just one: a reader
-                // told the claim matches nothing must be able to see what
-                // the proof does attest to, or the finding is unauditable.
-                error: Some(format!(
-                    "bitcoin_block_height mismatch: receipt claims {claimed_block_height}, but \
-                     its OTS proof attests to no such block (attested: [{heights}])"
-                )),
-            }
-        }
-        Err(e) => AnchorVerificationResult {
-            anchor_type: "bitcoin_ots".to_string(),
-            is_valid: false,
-            timestamp: None,
-            claimed_timestamp: super::parse_iso8601_to_nanos(timestamp),
-            error: Some(e.to_string()),
+    verify_anchor(
+        &ReceiptAnchor::BitcoinOts {
+            target: target.to_string(),
+            target_hash: target_hash.to_string(),
+            timestamp: timestamp.to_string(),
+            bitcoin_block_height: claimed_block_height,
+            bitcoin_block_time: String::new(),
+            ots_proof: ots_proof.to_string(),
         },
-    }
-}
-
-/// Verify Bitcoin OTS anchor implementation (without feature flag)
-#[cfg(not(feature = "bitcoin-ots"))]
-pub fn verify_bitcoin_ots_anchor_impl(
-    timestamp: &str,
-    _ots_proof: &str,
-    _expected_root: &[u8; 32],
-    _claimed_block_height: u64,
-) -> AnchorVerificationResult {
-    use super::parse_iso8601_to_nanos;
-
-    AnchorVerificationResult {
-        anchor_type: "bitcoin_ots".to_string(),
-        is_valid: false,
-        // The feature is compiled out, so nothing was verified and nothing
-        // is established -- least of all a time.
-        timestamp: None,
-        claimed_timestamp: parse_iso8601_to_nanos(timestamp),
-        error: Some("Bitcoin OTS verification requires 'bitcoin-ots' feature".to_string()),
-    }
+        context,
+    )
 }
 
 #[cfg(test)]
@@ -635,7 +450,9 @@ mod rfc3161_target_tests {
 
         assert!(!result.is_valid);
         assert!(result.error.is_some());
-        assert!(result.error.unwrap().contains("invalid target_hash format"));
+        // The finding names the field, so a reader can see which of the two
+        // hashes in play was the malformed one.
+        assert!(result.error.unwrap().contains("anchor.target_hash"));
     }
 
     #[test]
@@ -754,7 +571,9 @@ mod rfc3161_target_tests {
 
         assert!(!result.is_valid);
         assert!(result.error.is_some());
-        assert!(result.error.unwrap().contains("invalid target_hash format"));
+        // The finding names the field, so a reader can see which of the two
+        // hashes in play was the malformed one.
+        assert!(result.error.unwrap().contains("anchor.target_hash"));
     }
 
     #[test]
@@ -893,7 +712,7 @@ mod metadata_hash_tests {
 /// ATL v2.0 §5.5.2 step 5, height half: the receipt's `bitcoin_block_height`
 /// against the height the OTS proof itself attests to.
 ///
-/// Exercised through [`verify_bitcoin_ots_anchor_impl`] with a real
+/// Exercised through [`verify_bitcoin_ots_anchor`] with a real
 /// `OpenTimestamps` proof, because the comparison is only worth anything if
 /// the height really is recoverable from proof bytes with no network access
 /// — which is the entire reason this half of step 5 lives in this crate.
@@ -903,6 +722,12 @@ mod bitcoin_ots_claimed_height_tests {
     use crate::core::ots::DetachedTimestampFile;
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
+
+    /// A context whose super root is the fixture's start digest, so the
+    /// anchor binds and the OTS checks are the ones under test.
+    fn context_for(digest: [u8; 32]) -> AnchorVerificationContext {
+        AnchorVerificationContext::new([0xaa; 32], digest)
+    }
 
     /// The fixture proof, its start digest, and the height it attests to.
     fn fixture() -> (String, [u8; 32], u64) {
@@ -924,15 +749,31 @@ mod bitcoin_ots_claimed_height_tests {
     }
 
     /// The height the receipt states and the height its proof attests to
-    /// agree: nothing is refuted on this ground.
+    /// agree: **nothing is refuted on this ground**.
+    ///
+    /// The anchor is still not `is_valid`, and that is a different statement.
+    /// No block header was obtained, so the OTS proof's Merkle root was never
+    /// compared against one -- ATL v2.0 Section 5.5.2 step 4's "to the Bitcoin
+    /// block". What this test pins is that the *height* comparison does not
+    /// contribute a finding, and that the only thing standing between this
+    /// anchor and acceptance is the unperformed lookup.
     #[test]
     fn a_matching_claimed_height_is_not_refuted() {
         let (proof, digest, attested) = fixture();
 
-        let result =
-            verify_bitcoin_ots_anchor_impl("2026-01-13T12:00:00Z", &proof, &digest, attested);
+        let result = verify_bitcoin_ots_anchor(
+            "super_root",
+            &format_hash(&digest),
+            "2026-01-13T12:00:00Z",
+            attested,
+            &proof,
+            &context_for(digest),
+        );
 
-        assert!(result.is_valid, "{:?}", result.error);
+        assert!(!result.is_valid, "no block header was obtained, so nothing is confirmed");
+        let error = result.error.expect("the unperformed check must be named");
+        assert!(!error.contains("bitcoin_block_height mismatch"), "{error}");
+        assert!(error.contains("no Bitcoin block header was obtained"), "{error}");
     }
 
     /// **The defect this check exists for.** A receipt may state any height
@@ -944,8 +785,14 @@ mod bitcoin_ots_claimed_height_tests {
     fn a_claimed_height_the_proof_contradicts_is_refuted() {
         let (proof, digest, attested) = fixture();
 
-        let result =
-            verify_bitcoin_ots_anchor_impl("2026-01-13T12:00:00Z", &proof, &digest, attested + 1);
+        let result = verify_bitcoin_ots_anchor(
+            "super_root",
+            &format_hash(&digest),
+            "2026-01-13T12:00:00Z",
+            attested + 1,
+            &proof,
+            &context_for(digest),
+        );
 
         assert!(!result.is_valid);
         let error = result.error.expect("a refutation must say what it refuted");
@@ -989,10 +836,19 @@ mod bitcoin_ots_claimed_height_tests {
     fn no_block_time_is_ever_established_offline() {
         let (proof, digest, attested) = fixture();
 
-        let result =
-            verify_bitcoin_ots_anchor_impl("2026-01-13T12:00:00Z", &proof, &digest, attested);
+        let result = verify_bitcoin_ots_anchor(
+            "super_root",
+            &format_hash(&digest),
+            "2026-01-13T12:00:00Z",
+            attested,
+            &proof,
+            &context_for(digest),
+        );
 
         assert_eq!(result.timestamp, None);
+        // The claim itself survives -- it is simply never presented as a
+        // fact.
+        assert!(result.claimed_timestamp.is_some());
     }
 }
 

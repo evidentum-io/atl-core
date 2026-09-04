@@ -95,15 +95,28 @@ fn create_test_receipt() -> (Receipt, [u8; 32], SigningKey) {
     (receipt, verifying_key.to_bytes(), signing_key)
 }
 
+/// The fixture receipt carries **no anchors**, so ATL v2.0 Section 5.5's floor
+/// -- "At least one anchor MUST be verified to establish trust in the receipt"
+/// -- cannot be met, however sound everything else is. Its proofs pass and its
+/// signature verifies; that is internal consistency, which Section 5.6's own
+/// table is explicit about being the whole of what a Receipt-Lite offers.
+///
+/// The outcome is `NoTrustAnchor`, an **inability**: nothing about the receipt
+/// was disproved, it was simply never attested to by anything outside the log.
+/// `is_indeterminate()` says so, and a renderer must report it as *not
+/// verified* rather than as *invalid*.
 #[test]
-fn test_valid_receipt_passes() {
+fn test_sound_receipt_without_anchors_is_unattested_not_refuted() {
     let (receipt, public_key, _) = create_test_receipt();
     let result = verify_receipt_with_key(&receipt, &public_key).unwrap();
 
-    assert!(result.is_valid);
     assert!(result.inclusion_valid);
     assert!(result.signature_valid);
-    assert!(result.errors.is_empty());
+
+    assert!(!result.is_valid, "Section 5.5: zero anchors means zero verified anchors");
+    assert!(result.is_indeterminate(), "nothing was refuted");
+    assert_eq!(result.errors(), [VerificationError::NoTrustAnchor { required: 1, verified: 0 }]);
+    assert!(!VerificationError::NoTrustAnchor { required: 1, verified: 0 }.is_refutation());
 }
 
 #[test]
@@ -308,13 +321,18 @@ fn test_receipt_verifier_with_options() {
     // This test verifies that with_options constructor accepts options parameter
 }
 
+/// The JSON entry point reaches the same verdict as the typed one on the same
+/// receipt -- including the Section 5.5 floor. Every convenience wrapper
+/// funnels into `ReceiptVerifier::verify`, so none of them can disagree.
 #[test]
 fn test_verify_receipt_json_with_key() {
     let (receipt, public_key, _) = create_test_receipt();
     let json = receipt.to_json().unwrap();
 
     let result = verify_receipt_json_with_key(&json, &public_key).unwrap();
-    assert!(result.is_valid);
+    assert!(!result.is_valid, "an unanchored receipt is not accepted through any entry point");
+    assert!(result.is_indeterminate());
+    assert_eq!(result.errors(), [VerificationError::NoTrustAnchor { required: 1, verified: 0 }]);
 }
 
 #[test]
@@ -500,11 +518,13 @@ fn test_verify_anchor_rfc3161() {
 
     #[cfg(not(feature = "rfc3161-verify"))]
     {
+        // Not a refutation: the implementation is compiled out, so nothing
+        // about the token was examined. The legacy `is_valid` is `false`
+        // either way -- the distinction lives in the fact set.
         assert!(!result.is_valid);
-        assert_eq!(
-            result.error.as_deref(),
-            Some("RFC 3161 verification requires 'rfc3161-verify' feature")
-        );
+        let error = result.error.expect("an unimplemented anchor type must say so");
+        assert!(error.contains("rfc3161-verify"), "{error}");
+        assert!(error.contains("feature"), "{error}");
     }
 }
 
@@ -536,12 +556,11 @@ fn test_verify_anchor_bitcoin() {
 
     #[cfg(not(feature = "bitcoin-ots"))]
     {
-        // Without feature, should fail with feature disabled error
+        // Same shape as the RFC 3161 case above, and for the same reason.
         assert!(!result.is_valid);
-        assert_eq!(
-            result.error.as_deref(),
-            Some("Bitcoin OTS verification requires 'bitcoin-ots' feature")
-        );
+        let error = result.error.expect("an unimplemented anchor type must say so");
+        assert!(error.contains("bitcoin-ots"), "{error}");
+        assert!(error.contains("feature"), "{error}");
     }
 }
 
