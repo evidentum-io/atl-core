@@ -22,6 +22,11 @@ pub use types::{
 pub(in crate::core) mod helpers;
 pub use helpers::AnchorVerificationContext;
 
+pub mod facts;
+#[cfg(feature = "bitcoin-ots")]
+pub use facts::BitcoinOtsAnchorFacts;
+pub use facts::{verify_receipt_anchors, AnchorEvidence, AnchorFacts};
+
 pub mod anchors;
 
 pub mod super_tree;

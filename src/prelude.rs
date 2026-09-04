@@ -48,6 +48,8 @@ pub use crate::core::verify::{
     verify_cross_receipts,
     // Anchor-only verification (recommended, no key required)
     verify_receipt_anchor_only,
+    // Per-anchor facts (ATL v2.0 Section 5.5), without a verdict
+    verify_receipt_anchors,
     verify_receipt_json_anchor_only,
     // Key-based verification (if you have the key)
     verify_receipt_json_with_key,
@@ -56,6 +58,8 @@ pub use crate::core::verify::{
     verify_receipt_with_options,
     verify_super_inclusion,
     // Types
+    AnchorEvidence,
+    AnchorFacts,
     CrossReceiptVerificationResult,
     ReceiptVerifier,
     SignatureMode,
@@ -74,6 +78,9 @@ pub use crate::core::verify::{
     CmsSignature, MessageImprint, PathStatus, Rfc3161AnchorFacts, SelfSignature, TerminalAnchor,
     TimestampingEku, TrustStore,
 };
+
+#[cfg(feature = "bitcoin-ots")]
+pub use crate::core::verify::BitcoinOtsAnchorFacts;
 
 // Checkpoint
 pub use crate::core::checkpoint::{Checkpoint, CheckpointVerifier};

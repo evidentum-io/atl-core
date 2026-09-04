@@ -4,7 +4,305 @@ All notable changes to `atl-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this crate
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.29.0]
+
+### An anchor's outcome is three-valued, and callers can finally see it
+
+`ReceiptVerifier::verify` reports each anchor as an `AnchorVerificationResult`
+whose load-bearing field is a single `is_valid: bool`. That boolean cannot say
+whether an anchor was **checked and found false** or **not checked at all**,
+and those call for opposite reactions: one is evidence that somebody attached a
+forged anchor, the other is a gap in the verifier. (Neither is evidence against
+the *receipt* — see the entry below on why an unauthenticated anchor decides
+nothing about it.) This is the same distinction `PathStatus`,
+`MessageImprint` and `CmsSignature` already draw one level down — and the
+distinction the receipt level threw away.
+
+A caller needing it has had exactly one option: set
+`VerifyOptions { skip_anchors: true }` and re-implement §5.5 itself. That is
+not duplicated cryptography — `verify_rfc3161_token` and
+`verify_ots_anchor_impl` were always public — it is duplicated **protocol
+orchestration**: pinning the anchor to the receipt's own root, deciding which
+facts refute and which merely fail to confirm, and reducing them to an outcome.
+Two implementations of a mandatory rule drift, and every defect fixed on one
+side stays open on the other. `atl-cli` is that caller, and this release exists
+so it can stop.
+
+**`verify_receipt_anchors(&receipt, &options) -> Vec<AnchorFacts>`** is that
+orchestration published as facts, one entry per anchor in receipt order, with
+no verdict formed. `AnchorFacts` answers three questions that partition:
+
+* `is_verified()` — no findings at all;
+* `is_refuted()` — something checkable was checked and is false;
+* `is_indeterminate()` — nothing was refuted and a check could not be finished.
+
+**No fourth vocabulary was introduced for this.** Every check that did not come
+out verified is a `VerificationError`, and `VerificationError::is_refutation()`
+— which 0.28 added for the receipt level — is what splits them. The eleven new
+variants carry the fact enums themselves rather than flattening them into
+prose, so `Rfc3161MessageImprint(Indeterminate)` classifies as an inability and
+`Rfc3161MessageImprint(Mismatch)` as a refutation with nothing for a consumer
+to re-derive. `is_refutation` is now an exhaustive match rather than a negated
+`matches!`: a wildcard would silently classify the next variant somebody adds,
+and both possible silent answers are wrong.
+
+**Any refutation outranks every inability**, and the rule is enforced by
+construction: every finding is gathered before any is weighed. The `atl-cli`
+implementation of the same rule once returned on the first non-verified fact it
+met, so an `Indeterminate` imprint beside a `Refuted` CMS signature came out as
+"nothing was refuted". The test that pins this here uses a real OTS proof whose
+height the receipt contradicts: both kinds of finding are present at once, and
+the outcome must be `refuted`.
+
+### `ReceiptVerifier::verify` no longer contradicts its own facts
+
+Three defects, all in the receipt-level aggregate, all of the same kind: the
+verdict asserted more than the checks behind it supported.
+
+**1. A `bitcoin_ots` anchor was reported as verified without ever seeing a
+block.** ATL v2.0 §5.5.2 step 4 is "verify the OTS proof chain from
+`anchor.target_hash` **to the Bitcoin block**". This crate performs no I/O, so
+it decodes the proof, walks its Merkle path and compares the height the proof
+carries against the receipt's claim — and stops there. Nothing compares the
+computed Merkle root against a block header, because no block header is ever
+obtained. Such an anchor nonetheless came back `is_valid: true`, so a
+Receipt-Full verified offline on the strength of a proof nothing had checked
+against Bitcoin.
+
+**2. A refuted anchor was not reported at all.** A refutation reached
+`result.errors` only when `min_valid_anchors` was set, which it is not by
+default. So `is_valid: true` could sit on the same result as
+`anchor_results[0].is_valid == false` — and did, in this crate's own
+integration suite, where `assert!(result.is_valid)` stood two lines above
+`assert!(!anchor_result.is_valid)` and nobody read them together. A receipt
+carrying a token somebody had appended to it verified silently.
+
+**3. The log operator's own signature counted as a trust anchor.** §5.4 calls
+the checkpoint signature "an integrity check, not a trust establishment", §1.2
+derives trust "exclusively from external, independent anchors", and §5.6's
+table rates a receipt with no anchors as "internal consistency only". Rule 4
+of `compute_validity` nevertheless accepted a verified signature in place of a
+verified anchor — which is to say it accepted the one party a transparency log
+exists so that nobody has to believe.
+
+Measured against `atl-cli/test_data`, three receipts changed verdict, all of
+them in that suite's `invalid/` directory:
+
+| fixture | 0.28 | 0.29 |
+|---|---|---|
+| `bitcoin_time_contradicts_block.atl` | `valid` | not valid, **indeterminate**, `NoTrustAnchor` |
+| `hostile_block_time.atl` | `valid` | not valid, **indeterminate**, `NoTrustAnchor` |
+| `hostile_anchor_timestamp.atl` | `valid` | not valid, **refuted**, `AnchorPayloadUndecodable` |
+
+None of the three had a single verified anchor, and the third had a *refuted*
+one. No other receipt in that corpus changed verdict.
+
+**The rule now.** `is_valid` is: the §5.5 threshold is met (at least one
+verified anchor) **and** nothing is wrong with the receipt itself — its
+inclusion proof, its Super-Tree proofs, `metadata_hash`, the provenance of its
+bytes. Anchor findings are reported but take no part in that conjunct;
+`VerificationError::is_about_the_receipt()` draws the line.
+
+**Why an anchor finding may not veto the verdict.** A receipt does not
+authenticate its own anchors. The leaf hash is `SHA256(0x00 || payload_hash ||
+metadata_hash)` and the checkpoint blob is 98 bytes of origin, tree size,
+timestamp and root hash; the `anchors` array appears in neither, so nothing
+signs it and nothing hashes it. **Anybody who relays a receipt can append an
+anchor to it, with no key.** A first draft of this release let any refuted
+anchor refute the receipt, which would have handed every relay a denial of
+verification: append one malformed token and a receipt holding a flawless
+independent anchor stops verifying. §5.5 sets a threshold and has no term for
+the remaining anchors, and an unauthenticated anchor reports on itself and on
+nothing else — it cannot undo an existence in time that another anchor
+established.
+
+**One report of an unmet threshold, produced independently of the anchor
+array.** The quorum
+check (`min_valid_anchors`) used to run only inside the anchor block, which a
+receipt with no anchors never entered. So an unanchored receipt reported
+`NoTrustAnchor`, and appending a single rubbish anchor moved it into the block
+and produced an `AnchorFailed` aggregate instead — classified as a refutation,
+and suppressing `NoTrustAnchor` on the way past. A stranger could therefore
+change both the receipt's status *and its set of receipt-level errors*, which is
+the same defect a third time, in the one place two rounds of guards had not
+looked.
+
+`AnchorFailed` is removed. `NoTrustAnchor` becomes
+`NoTrustAnchor { required, verified }` and is the only report of an unmet
+threshold — for a receipt with no anchors, one whose anchors were all
+unresolved, one whose anchors were all refuted, one verified with
+`skip_anchors`, and a caller-raised quorum alike. `min_valid_anchors` raises the
+threshold (`required = max(1, min_valid_anchors)`, Section 5.5's floor being
+one); it does not create a second kind of failure, so it no longer gets a second
+error. It is pushed whenever `verified < required`, with no guard on what else
+is in the list and no dependence on what the `anchors` array holds, because a
+guard on either is the same fragility one step removed.
+
+`verify` still returns early on five receipt-level refutations — an unsupported
+`spec_version`, a leaf hash that could not be reconstructed, an unparsable
+`proof.root_hash`, and the two checkpoint-versus-proof mismatches — and so does
+not reach the threshold check on those paths. That changes no status, and it is
+measured rather than assumed: every one of those paths, with and without
+anchors, reports exactly what it would report with `NoTrustAnchor` appended.
+The receipt has no parsed root and therefore no verified anchor either way, and
+adding a non-refutation to a non-empty error list moves neither `is_valid` nor
+`is_indeterminate`.
+
+**No status moves, not just `is_valid`.** The first draft of this fix scoped
+only the acceptance conjunct and left `VerificationResult::is_indeterminate`
+consulting every error. Since `AnchorFinding::is_refutation()` delegates to what
+it wraps — correct for the anchor, wrong for the receipt — a stranger could
+still flip a receipt from *trust could not be established* to *this evidence is
+disproved* by appending one malformed token. That is the same defect one storey
+up: not an invalidation, but an accusation manufactured for free against a
+document nothing had disproved. `is_indeterminate` now consults
+`receipt_errors()` only.
+
+**The guarantee is one-sided, and is stated that way: an anchor that *fails*
+verification changes no status of the receipt.** The unqualified form —
+"appending an anchor changes no status" — is false, and asserting it would be
+this same defect once more, in the wording of the guarantee rather than in the
+code. An anchor that *passes* verification raises the verified count and can
+carry a receipt over the threshold: at `min_valid_anchors: 2`, a receipt with
+one verified anchor reports `NoTrustAnchor { required: 2, verified: 1 }` and a
+second verified anchor clears it. Anchors would be pointless otherwise. The
+asymmetry mirrors the capability — appending rubbish costs nothing, while
+producing an anchor that verifies needs a timestamp token over this receipt's
+own root chaining to a caller-supplied trust root — and the test suite guards
+both directions, so "the invariant holds" cannot be confused with "anchors do
+not matter".
+
+A receipt whose only anchor is refuted is therefore *unattested*, not refuted.
+Every anchor refutation this crate can produce is reachable by appending — a
+wrong `target`, a `target_hash` naming another root, an undecodable payload, a
+genuine token minted for other data, a Bitcoin anchor whose stated height its
+own proof contradicts — so the observation never distinguishes "the receipt was
+altered" from "somebody appended rubbish", and no verdict may rest on a
+distinction the evidence does not support. Nothing is lost: an attacker who
+alters a receipt so that genuine anchors stop matching must change
+`proof.root_hash`, which the checkpoint comparison and the inclusion proof catch
+at receipt level.
+
+**And it is never hidden.** A refuted anchor is pushed onto `result.errors`
+wrapped in `VerificationError::AnchorFinding { index, anchor_type, finding }`,
+machine-readable and carrying its provenance, still answering `is_refutation()`
+as a refutation *of the anchor*. `VerificationResult::anchor_findings()` lists
+them so that "does not decide the verdict" cannot quietly become "is not shown
+to anybody". Inabilities are not pushed: an unfinished check is not a finding,
+and the full fact set is a `verify_receipt_anchors` call away.
+
+**A receipt with no anchors is `is_indeterminate`, never refuted.** §5.5's MUST
+cannot be met by zero anchors, so it is not accepted; but nothing about such a
+receipt was shown false — what is absent is external attestation, and absence
+of evidence *for* is not evidence *against*. It reports as `NoTrustAnchor`,
+which `is_refutation()` already classified as an inability.
+
+`helpers::legacy_anchor_result` is gone. The projection onto
+`AnchorVerificationResult` remains as `anchor_result_from_facts`, and it has no
+carve-out left to justify: `is_valid` is exactly `AnchorFacts::is_verified`.
+
+### Compatibility
+
+Breaking for anyone matching exhaustively on `VerificationError` — eleven
+variants are added, five of them gated on `rfc3161-verify`. A `_ => …` arm
+absorbs them, but reading the new variants is the point of the release.
+
+**`is_valid` is stricter, through every entry point.** `verify_receipt_anchor_only`,
+`verify_receipt_with_key`, `verify_receipt_json_*` and the rest all funnel into
+`ReceiptVerifier::verify`, so none of them can disagree with it and all of them
+change together. A receipt that was accepted and now is not falls into one of
+three cases: its only trust was a `bitcoin_ots` anchor; its only trust was the
+checkpoint signature (including every `skip_anchors: true` call made with a
+key); or it carries no anchors at all. In every case the acceptance was
+unsupported by what had been checked. Callers that need the previous
+permissiveness should read `AnchorFacts` and apply their own threshold, which
+is what the facts API is for.
+
+`VerificationError::is_refutation` is no longer `const`: `AnchorFinding`
+delegates to the boxed error it wraps, which a constant context cannot
+dereference.
+
+`AnchorVerificationResult::error` — documented since 0.5 as never load-bearing
+— changes wording in three places: a malformed `anchor.target_hash` now says
+`Invalid hash in field 'anchor.target_hash'`; an anchor type whose feature is
+compiled out says `… is not compiled into this build: enable the '<feature>'
+feature`; and the wrong-`target` and `target_hash`-mismatch messages carry the
+anchor type's wire name.
+
+One further behavioural change reaches an anchor's `is_valid`: a `bitcoin_ots`
+anchor whose selected attestation has an empty Merkle path is now refuted
+(`AnchorPayloadUndecodable`) rather than accepted. No real `OpenTimestamps`
+Bitcoin attestation has one; the previous code simply never looked.
+
+### Added
+
+- `verify_receipt_anchors`, re-exported from the crate root and `prelude`.
+- `AnchorFacts` — `anchor_type`, `claimed_timestamp`, `established_timestamp`,
+  `evidence`, `findings`, `refutations`, `inabilities`, `is_verified`,
+  `is_refuted`, `is_indeterminate`. Fields are private: the relationship
+  between the findings and the three predicates is the type's whole contract.
+- `AnchorEvidence` — `None`, `Rfc3161(Box<Rfc3161AnchorFacts>)` and
+  `BitcoinOts(Box<BitcoinOtsAnchorFacts>)`, each behind its own feature.
+  `#[non_exhaustive]`.
+- `BitcoinOtsAnchorFacts` (`bitcoin-ots`) — `attested_block_heights`,
+  `receipt_block_height`, `receipt_block_time`, `attestation`,
+  `computed_block_merkle_root`. There is deliberately no field for the block's
+  own Merkle root, time or hash: no header is ever obtained, and a
+  permanently-empty field invites a reader to treat its emptiness as a value.
+- `VerificationError::AnchorFinding { index, anchor_type, finding }`, which
+  records that an error is about an anchor rather than about the receipt, and
+  `VerificationError::is_about_the_receipt`, which is what every status of a
+  `VerificationResult` is computed over. Not a severity ranking: an anchor
+  finding is still a refutation and still reported.
+- `VerificationResult::receipt_errors()` and
+  `VerificationResult::anchor_findings()` — the two halves of that line, so a
+  consumer building its own verdict classifies from the errors that cannot be
+  steered by whoever last handled the receipt, and still has the findings to
+  display.
+- `VerificationError::AnchorTargetInvalid`, `AnchorTargetHashMismatch`,
+  `AnchorPayloadUndecodable`, `BitcoinHeightContradictsProof` (refutations);
+  `AnchorTypeUnsupported`, `BitcoinBlockNotObtained` (inabilities).
+- `VerificationError::Rfc3161MessageImprint`, `Rfc3161CmsSignature`,
+  `Rfc3161TimestampingEku`, `Rfc3161CertificatePath`,
+  `Rfc3161TerminalNotTrusted` (`rfc3161-verify`), each carrying the fact that
+  decides its own `is_refutation()`. `Rfc3161CertificatePath` carries
+  `chain_valid_at_gen_time` alongside the `PathStatus`, because that flag is
+  `false` whenever no complete path was built and is a contradiction — and
+  therefore a refutation — only when the path did complete.
+
+### Changed
+
+- `ReceiptVerifier::verify`'s anchor step is now the same fact gathering
+  `verify_receipt_anchors` publishes, so ATL §5.5 has one implementation inside
+  this crate rather than two, and the verdict cannot disagree with the facts a
+  caller reads directly.
+- **Breaking:** `compute_validity` Rule 4 requires at least one *verified*
+  anchor. A verified checkpoint signature no longer substitutes.
+- **Breaking:** an anchor's refutations reach `VerificationResult::errors`,
+  wrapped in `AnchorFinding`. They are fully machine-readable and must be
+  displayed; an anchor that fails verification changes no status of the
+  receipt.
+- **Breaking:** `VerificationResult::is_indeterminate` consults only errors for
+  which `is_about_the_receipt()` holds. A receipt whose only anchor is refuted
+  is now indeterminate where 0.28 and the first draft of 0.29 called it
+  refuted.
+- **Breaking:** `VerificationError::NoTrustAnchor` is now
+  `NoTrustAnchor { required, verified }`, and `VerificationError::AnchorFailed`
+  is removed — the two reported the same fact and only one of them was
+  forgeable. `NoTrustAnchor` is pushed whenever fewer than
+  `max(1, min_valid_anchors)` anchors verified, with no guard on the anchor
+  array or on what else is already in the error list, so it now also appears
+  beside a receipt-level refutation where the old guard suppressed it — except
+  on the five paths where `verify` returns before reaching the check, which
+  changes no status (see above).
+- **Breaking:** `VerificationError::is_refutation` is no longer `const`.
+- **Breaking:** `AnchorVerificationResult::is_valid` is exactly
+  `AnchorFacts::is_verified`; a `bitcoin_ots` anchor is therefore never
+  `is_valid` from this crate.
+- `VerificationError::is_refutation` is an exhaustive match; the payload
+  decides for the variants that carry a fact.
+
+## [0.28.0]
 
 ### RFC 8785 §3.1 is a set of MUSTs on the *input*, and they are now checked
 

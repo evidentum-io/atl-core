@@ -154,3 +154,96 @@ fn trust_store_is_scoped_to_the_options_it_was_configured_on() {
     assert!(trusting.verify(&receipt).anchor_results[0].is_valid);
     assert!(!bare.verify(&receipt).anchor_results[0].is_valid);
 }
+
+/// **The other half of the guarantee: a verified anchor changes exactly what
+/// it should.**
+///
+/// Its sibling
+/// `facts_tests::receipt_verdict::an_unverified_appended_anchor_changes_no_status_of_the_receipt`
+/// shows that an anchor which fails verification moves nothing. On its own
+/// that would be indistinguishable from a verifier in which anchors do not
+/// matter at all — two very different worlds. This test is the other side: the
+/// same receipt, the same real FreeTSA token, and the *only* difference being
+/// whether the caller supplied the trust root that lets the anchor verify.
+///
+/// With it, `has_valid_anchor()` becomes true and `NoTrustAnchor` disappears:
+/// ATL v2.0 Section 5.5's threshold is reached. Without it, both go the other
+/// way. Nothing else about the receipt differs.
+///
+/// # Why `is_valid` itself is not asserted here
+///
+/// This fixture cannot reach acceptance, and the reason is worth stating so
+/// the assertion is not read as weaker than it is. The anchor pins
+/// `proof.root_hash` to the token's `messageImprint`, a fixed value in a real
+/// captured token; a receipt whose Merkle root is that value would have to be
+/// one whose leaf hash inverts to it. Minting a token over a root this test
+/// chooses needs a TSA private key, which this crate deliberately has none of.
+/// So the base inclusion proof fails here by construction, and the `is_valid`
+/// half is pinned where it can be stated exactly —
+/// `verifier::compute_validity_tests::reaching_the_quorum_with_a_second_verified_anchor_accepts_the_receipt`,
+/// which also covers `required: 2`, needing a second independent token this
+/// crate does not have.
+#[test]
+fn a_verified_anchor_reaching_the_threshold_clears_the_finding() {
+    use crate::core::verify::VerificationError;
+
+    let receipt = make_receipt_anchored_to_freetsa();
+    let no_trust_root = || {
+        !ReceiptVerifier::anchor_only()
+            .verify(&receipt)
+            .errors()
+            .iter()
+            .any(|e| matches!(e, VerificationError::NoTrustAnchor { .. }))
+    };
+
+    // Without the trust root: the anchor does not verify, and the threshold
+    // is reported unmet, naming both numbers.
+    let without = ReceiptVerifier::anchor_only().verify(&receipt);
+    assert!(!without.has_valid_anchor());
+    assert!(!no_trust_root(), "the threshold must be reported unmet");
+    assert!(without
+        .errors()
+        .iter()
+        .any(|e| matches!(e, VerificationError::NoTrustAnchor { required: 1, verified: 0 })));
+
+    // With it -- the single change -- the anchor verifies and the finding is
+    // gone. An anchor that passes verification is *supposed* to move this.
+    let store = TrustStore::new().with_anchor_certificate(decode_freetsa_root_cert());
+    let options = VerifyOptions { rfc3161_trust_store: Some(store), ..Default::default() };
+    let with = ReceiptVerifier::anchor_only_with_options(options).verify(&receipt);
+
+    assert!(with.anchor_results[0].is_valid, "{:?}", with.anchor_results[0].error);
+    assert!(with.has_valid_anchor());
+    assert!(
+        !with.errors().iter().any(|e| matches!(e, VerificationError::NoTrustAnchor { .. })),
+        "one verified anchor meets Section 5.5: {:?}",
+        with.errors()
+    );
+    // Nothing else moved: the fixture's own inclusion failure is untouched.
+    assert_eq!(without.inclusion_valid, with.inclusion_valid);
+}
+
+/// The same receipt without the trust store: the anchor is unresolved, and
+/// **the receipt's error list stays free of anchor findings**.
+///
+/// That is the rule under test. An anchor whose terminal certificate nobody
+/// vouches for refutes nothing, so nothing about it may be published as
+/// evidence against the receipt; only its absence from the verified tally may
+/// count, and that is `NoTrustAnchor`'s job. (This fixture's base inclusion
+/// proof fails for the reason given on the test above, which is why the error
+/// list is not simply asserted empty.)
+#[test]
+fn an_unresolved_anchor_contributes_no_finding_against_the_receipt() {
+    let receipt = make_receipt_anchored_to_freetsa();
+    let result = ReceiptVerifier::anchor_only().verify(&receipt);
+
+    assert!(!result.anchor_results[0].is_valid, "no trust store, so no verified anchor");
+    assert!(!result.is_valid);
+
+    assert_eq!(
+        result.anchor_findings().count(),
+        0,
+        "an unvouched-for terminal certificate refutes nothing: {:?}",
+        result.errors()
+    );
+}

@@ -64,16 +64,19 @@ fn test_verification_error_display_tree_size_mismatch() {
     assert!(s.contains("Tree size mismatch"));
 }
 
+/// A finding about an anchor names the anchor it is about, so a reader can
+/// tell which entry in the array it concerns without counting.
 #[test]
-fn test_verification_error_display_anchor_failed() {
-    let error = VerificationError::AnchorFailed {
+fn test_verification_error_display_anchor_finding() {
+    let error = VerificationError::AnchorFinding {
+        index: 2,
         anchor_type: "rfc3161".to_string(),
-        reason: "signature invalid".to_string(),
+        finding: Box::new(VerificationError::SignatureFailed),
     };
     let s = format!("{error}");
-    assert!(s.contains("Anchor verification failed"));
-    assert!(s.contains("rfc3161"));
-    assert!(s.contains("signature invalid"));
+    assert!(s.contains('2'), "{s}");
+    assert!(s.contains("rfc3161"), "{s}");
+    assert!(s.contains("Signature verification failed"), "{s}");
 }
 
 #[test]
@@ -133,11 +136,20 @@ fn test_verification_error_display_metadata_hash_mismatch() {
     assert!(s.contains("ddeeff"));
 }
 
+/// The one report of an unmet threshold carries both numbers, so a caller can
+/// tell "none at all" from "one short of the quorum I asked for" without
+/// re-deriving either.
 #[test]
 fn test_verification_error_display_no_trust_anchor() {
-    let error = VerificationError::NoTrustAnchor;
+    let error = VerificationError::NoTrustAnchor { required: 2, verified: 1 };
     let s = format!("{error}");
-    assert!(s.contains("No trust anchor available"));
+    assert!(s.contains('2'), "{s}");
+    assert!(s.contains('1'), "{s}");
+    assert!(s.contains("trust not established"), "{s}");
+    // An inability, never a refutation: not enough was proved, nothing was
+    // disproved.
+    assert!(!error.is_refutation());
+    assert!(error.is_about_the_receipt());
 }
 
 // ========== VerificationError Equality Tests ==========

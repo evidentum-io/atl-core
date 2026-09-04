@@ -782,7 +782,6 @@ fn test_receipt_with_rfc3161_anchor_wrong_hash() {
 
     let result = verify_receipt_with_key(&receipt, &verifying_key.to_bytes()).unwrap();
 
-    assert!(result.is_valid);
     assert_eq!(result.anchor_results.len(), 1);
 
     let anchor_result = &result.anchor_results[0];
@@ -790,6 +789,30 @@ fn test_receipt_with_rfc3161_anchor_wrong_hash() {
     assert!(!anchor_result.is_valid);
     assert!(anchor_result.error.is_some());
     assert!(anchor_result.error.as_ref().unwrap().contains("mismatch"));
+
+    // The token attests to some other data: a checked fact, and it is false.
+    //
+    // The receipt is not accepted -- but for the ATL v2.0 Section 5.5 reason,
+    // that this is its only anchor and it is therefore not a *verified* one.
+    // A refuted anchor does not by itself veto a verdict: the `anchors` array
+    // is authenticated by nothing, so anyone could have appended this token.
+    // What it does do is get reported, and stop the outcome from being called
+    // "not evaluated".
+    //
+    // Until 0.28 this assertion read `assert!(result.is_valid)` directly above
+    // `assert!(!anchor_result.is_valid)` -- the contradiction was written down
+    // in the suite and nobody read the two lines together.
+    assert!(!result.is_valid, "no verified anchor, so Section 5.5's threshold is unmet");
+    // Indeterminate, not refuted. What was checked and found false is an
+    // anchor, and a receipt's anchors are authenticated by nothing -- anybody
+    // who handled this receipt could have put that token there. The receipt's
+    // own facts are untouched, so calling it disproved would publish an
+    // accusation a stranger could manufacture for free.
+    assert!(result.is_indeterminate(), "nothing about the receipt itself was refuted");
+    assert!(!result.receipt_errors().any(atl_core::VerificationError::is_refutation));
+    // The finding is still reported, in full, with its provenance.
+    assert_eq!(result.anchor_findings().count(), 1);
+    assert!(result.anchor_findings().all(atl_core::VerificationError::is_refutation));
 }
 
 #[cfg(feature = "rfc3161-verify")]
@@ -812,13 +835,20 @@ fn test_receipt_with_rfc3161_anchor_malformed() {
 
     let result = verify_receipt_with_key(&receipt, &verifying_key.to_bytes()).unwrap();
 
-    assert!(result.is_valid);
     assert_eq!(result.anchor_results.len(), 1);
 
     let anchor_result = &result.anchor_results[0];
     assert_eq!(anchor_result.anchor_type, "rfc3161");
     assert!(!anchor_result.is_valid);
     assert!(anchor_result.error.is_some());
+
+    // The bytes are present and are not a timestamp token: checked, false --
+    // about the anchor. Not accepted because it is the receipt's only anchor
+    // and it is not a verified one; not *refuted*, because nothing about the
+    // receipt was. See the note on the test above.
+    assert!(!result.is_valid, "no verified anchor, so Section 5.5's threshold is unmet");
+    assert!(result.is_indeterminate());
+    assert_eq!(result.anchor_findings().count(), 1);
 }
 
 #[cfg(not(feature = "rfc3161-verify"))]
@@ -841,13 +871,17 @@ fn test_receipt_with_rfc3161_anchor_feature_disabled() {
 
     let result = verify_receipt_with_key(&receipt, &verifying_key.to_bytes()).unwrap();
 
-    assert!(result.is_valid);
     assert_eq!(result.anchor_results.len(), 1);
 
     let anchor_result = &result.anchor_results[0];
     assert_eq!(anchor_result.anchor_type, "rfc3161");
     assert!(!anchor_result.is_valid);
     assert!(anchor_result.error.as_ref().unwrap().contains("feature"));
+
+    // Not a refutation: the implementation is compiled out, so nothing about
+    // the token was examined. The receipt is unattested, not disproved.
+    assert!(!result.is_valid, "an unexamined anchor is not a verified anchor");
+    assert!(result.is_indeterminate(), "nothing was refuted");
 }
 
 // ========== Metadata Hash Verification Tests ==========

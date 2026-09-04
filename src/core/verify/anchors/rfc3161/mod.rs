@@ -573,10 +573,14 @@ fn build_signer_facts(cert: &Certificate) -> Option<SignerFacts> {
 /// `VerifyOptions::rfc3161_trust_store` and
 /// `AnchorVerificationContext::with_rfc3161_trust_store`) -- callers going
 /// through `ReceiptVerifier` get `Trusted` anchoring by configuring that
-/// field; this function's `trust_store` parameter is exactly what
-/// `helpers::verify_rfc3161_anchor` forwards from there. Calling
-/// [`verify_rfc3161_token`] directly remains the richer option when the
-/// full fact set (not just `is_valid`) is wanted.
+/// field.
+///
+/// The receipt-level path no longer comes through here: it goes through
+/// `core::verify::facts`, which reports the fact set rather than a boolean and
+/// is what `verify_receipt_anchors` publishes. This function remains for
+/// callers holding a bare token who want the old shape; a caller that wants
+/// the facts should use [`verify_rfc3161_token`] (one token) or
+/// `verify_receipt_anchors` (a whole receipt).
 #[must_use]
 pub fn verify_rfc3161_anchor_impl(
     timestamp: &str,
@@ -622,7 +626,7 @@ fn detail_suffix(detail: Option<&str>) -> String {
 
 /// Render a compact human-readable summary of why `facts` did not reach
 /// full aggregate success, for [`AnchorVerificationResult::error`].
-fn summarize(facts: &Rfc3161AnchorFacts) -> String {
+pub(in crate::core) fn summarize(facts: &Rfc3161AnchorFacts) -> String {
     let mut reasons = Vec::new();
     match facts.message_imprint {
         result::MessageImprint::Verified => {}
