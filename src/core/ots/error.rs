@@ -94,6 +94,17 @@ pub enum OtsError {
 
     /// No pending attestation found in timestamp (already upgraded)
     NoPendingAttestation,
+
+    /// An `Op` step carries no child step
+    ///
+    /// The OTS binary format has no encoding for an operation that is not
+    /// followed by a further step, so such a tree cannot be serialized. Trees
+    /// produced by [`Timestamp::deserialize`] and [`TimestampBuilder`] never
+    /// hit this; a `Step` assembled field by field can.
+    ///
+    /// [`Timestamp::deserialize`]: super::Timestamp::deserialize
+    /// [`TimestampBuilder`]: super::TimestampBuilder
+    MissingOpChild,
 }
 
 impl std::fmt::Display for OtsError {
@@ -158,6 +169,9 @@ impl std::fmt::Display for OtsError {
             }
             Self::NoPendingAttestation => {
                 write!(f, "no pending attestation found in timestamp (already upgraded)")
+            }
+            Self::MissingOpChild => {
+                write!(f, "malformed step: an operation must be followed by exactly one step")
             }
         }
     }
@@ -258,6 +272,7 @@ mod tests {
             OtsError::EmptyFork,
             OtsError::UnmatchedEndFork,
             OtsError::NoPendingAttestation,
+            OtsError::MissingOpChild,
         ];
 
         for err in errors {

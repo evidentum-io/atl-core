@@ -4,6 +4,53 @@ All notable changes to `atl-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this crate
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.0]
+
+### `Step::serialize` refuses a step it cannot encode instead of panicking
+
+`Step`'s fields are public, and nothing about the type says an
+`StepData::Op` step must carry a child. `serialize` assumed one anyway and
+reached for `self.next[0]`, so a step assembled field by field --
+
+```rust
+Step { data: StepData::Op(Op::Sha256), output, next: vec![] }
+```
+
+-- panicked on `to_bytes()`. Nothing on the verification path can build that
+step: `Timestamp::deserialize` only emits an `Op` after it has parsed the
+following step, and `TimestampBuilder` refuses a chain that does not end in an
+attestation. It is reachable only from ordinary caller code, which is enough --
+a library panics on its own callers' legal input, or it does not.
+
+`serialize` was already fallible. The fix is that it now uses the refusal it
+already had: **`OtsError::MissingOpChild`**, returned in place of the index.
+`Timestamp::serialize`, `DetachedTimestampFile::to_writer` and
+`DetachedTimestampFile::to_bytes` propagate it and document it.
+
+**Why not make the state unrepresentable.** Moving the child into the variant
+(`StepData::Op(Op, Box<Step>)`, with `Step::next` gone) would settle this one
+constraint by construction. It does not settle the others: a fork needs N≥2
+branches, a `Vec` has no minimum, and `OtsError::EmptyFork` would go on being a
+runtime check standing next to it. So the restructure buys a partial win at the
+price of removing a public field and changing a public variant's arity --
+rewriting every downstream construction *and* every traversal of a type whose
+public shape is a faithful decoding of the OTS wire format. The narrower
+change is also the one this crate already chose in 0.28, when `canonicalize`
+could not honestly process its input: name the refusal and return it.
+
+**The other three constraints remain unchecked, and are now documented as
+such** on `Step` rather than left to a comment that says "operations always
+have exactly one child" over code that assumed it. They differ from this one in
+kind: each has *some* encoding, so serialization silently produces a tree of a
+different shape instead of failing. A `Fork` with fewer than two branches loses
+its fork marker; children hung on an `Attestation`, or a second child on an
+`Op`, are dropped. None of them panics.
+
+### Breaking
+
+* `OtsError` gains a `MissingOpChild` variant. The enum is not
+  `#[non_exhaustive]`, so an exhaustive match on it needs one more arm.
+
 ## [0.29.0]
 
 ### An anchor's outcome is three-valued, and callers can finally see it

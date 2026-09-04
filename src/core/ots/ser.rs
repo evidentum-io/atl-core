@@ -385,6 +385,8 @@ impl DetachedTimestampFile {
     ///
     /// # Errors
     ///
+    /// * [`OtsError::MissingOpChild`] - The proof tree contains an operation
+    ///   step with no child step
     /// * [`OtsError::IoError`] - I/O error during serialization
     ///
     /// # Examples
@@ -424,6 +426,8 @@ impl DetachedTimestampFile {
     ///
     /// # Errors
     ///
+    /// * [`OtsError::MissingOpChild`] - The proof tree contains an operation
+    ///   step with no child step
     /// * [`OtsError::IoError`] - I/O error during serialization
     pub fn to_bytes(&self) -> Result<Vec<u8>, OtsError> {
         let mut buf = Vec::new();

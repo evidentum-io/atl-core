@@ -40,6 +40,17 @@ pub enum StepData {
 /// - Fork steps have N≥2 children (all branches)
 /// - Op steps have exactly 1 child (next operation)
 /// - Attestation steps have 0 children (leaf nodes)
+///
+/// These hold for every tree produced by [`Timestamp::deserialize`] and by
+/// [`TimestampBuilder`], but the fields are public and the type does not
+/// enforce them. [`Step::serialize`] is the one place a violation is
+/// consequential -- the binary format cannot encode a childless `Op` -- and it
+/// reports [`OtsError::MissingOpChild`] rather than panicking. The remaining
+/// violations are encodable and serialize to a tree of a different shape: a
+/// `Fork` with fewer than two branches loses its fork marker, and children
+/// hung on an `Attestation`, or a second child on an `Op`, are dropped.
+///
+/// [`TimestampBuilder`]: super::TimestampBuilder
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Step {
     /// The data at this step (Fork, Op, or Attestation)
@@ -65,6 +76,9 @@ impl Step {
     ///
     /// # Errors
     ///
+    /// * [`OtsError::MissingOpChild`] - An [`StepData::Op`] step carries no
+    ///   child step. The binary format cannot encode one, and `Step`'s fields
+    ///   are public, so a caller can assemble such a step by hand.
     /// * [`OtsError::IoError`] - I/O error during serialization
     pub fn serialize<W: Write>(&self, ser: &mut Serializer<W>) -> Result<(), OtsError> {
         match &self.data {
@@ -83,8 +97,11 @@ impl Step {
                 // Write operation
                 op.serialize(ser)?;
 
-                // Write next step (operations always have exactly one child)
-                self.next[0].serialize(ser)
+                // Write next step. The format gives an operation no
+                // terminator of its own -- the following step is what ends it
+                // -- so a childless Op has no encoding at all.
+                let child = self.next.first().ok_or(OtsError::MissingOpChild)?;
+                child.serialize(ser)
             }
 
             StepData::Attestation(att) => {
@@ -191,6 +208,8 @@ impl Timestamp {
     ///
     /// # Errors
     ///
+    /// * [`OtsError::MissingOpChild`] - The tree contains an [`StepData::Op`]
+    ///   step with no child step
     /// * [`OtsError::IoError`] - I/O error during serialization
     pub fn serialize<W: Write>(&self, ser: &mut Serializer<W>) -> Result<(), OtsError> {
         self.first_step.serialize(ser)
@@ -281,6 +300,7 @@ fn deserialize_step<R: Read>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::ots::ser::{DetachedTimestampFile, DigestType};
 
     fn make_bitcoin_attestation(height: u64) -> Step {
         Step {
@@ -314,6 +334,46 @@ mod tests {
 
         // Should start with SHA256 tag (0x08)
         assert_eq!(buf[0], 0x08);
+    }
+
+    #[test]
+    fn test_childless_op_step_serialize_is_an_error_not_a_panic() {
+        // `Step`'s fields are public, so an operation with no continuation is
+        // constructible by any caller without going through the parser or the
+        // builder. The binary format has no encoding for it.
+        let step = Step { data: StepData::Op(Op::Sha256), output: vec![0xbb; 32], next: vec![] };
+
+        let mut buf = Vec::new();
+        let mut ser = Serializer::new(&mut buf);
+
+        assert!(matches!(step.serialize(&mut ser), Err(OtsError::MissingOpChild)));
+    }
+
+    #[test]
+    fn test_childless_op_reaches_serialization_entry_points_as_an_error() {
+        // The same malformation nested one level down, through the two public
+        // doors a caller actually reaches for.
+        let start_digest = vec![0x01; 32];
+        let sha256_output = Op::Sha256.execute(&start_digest);
+
+        let childless_op =
+            Step { data: StepData::Op(Op::Sha256), output: sha256_output.clone(), next: vec![] };
+
+        let timestamp = Timestamp {
+            start_digest,
+            first_step: Step {
+                data: StepData::Fork,
+                output: sha256_output,
+                next: vec![make_bitcoin_attestation(100), childless_op],
+            },
+        };
+
+        let mut buf = Vec::new();
+        let mut ser = Serializer::new(&mut buf);
+        assert!(matches!(timestamp.serialize(&mut ser), Err(OtsError::MissingOpChild)));
+
+        let file = DetachedTimestampFile { digest_type: DigestType::Sha256, timestamp };
+        assert!(matches!(file.to_bytes(), Err(OtsError::MissingOpChild)));
     }
 
     #[test]
