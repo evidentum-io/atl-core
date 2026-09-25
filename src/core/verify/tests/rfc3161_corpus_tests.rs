@@ -1,8 +1,10 @@
 //! Real-world RFC 3161 timestamp token corpus (16 tokens, 4 TSAs)
 //!
 //! Extracted from real ATL receipts issued by four independent free TSAs
-//! (FreeTSA, Sectigo, DigiCert, GlobalSign) during the algorithm survey that
-//! motivated this module: `docs-md/atl-trust-model-decisions.md`.
+//! (FreeTSA, Sectigo, DigiCert, GlobalSign) during a survey of how production
+//! RFC 3161 timestamp authorities anchor their certificate chains, which
+//! informed the `Incomplete`/`Invalid`/`Trusted` distinction this module
+//! tests below.
 //!
 //! FreeTSA and GlobalSign embed a genuinely self-signed root in the token;
 //! Sectigo and DigiCert embed a "root" that is itself cross-signed by an
